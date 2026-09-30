@@ -1,0 +1,22 @@
+{
+  "name": "quantumstore",
+  "version": "1.0.0",
+  "private": true,
+  "description": "QuantumStore — MERN sell & purchase ecommerce platform",
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "dev:server": "npm run dev --prefix backend",
+    "dev:client": "npm run dev --prefix frontend",
+    "seed": "npm run seed --prefix backend",
+    "test": "npm test --prefix backend",
+    "build": "npm run build --prefix frontend",
+    "start": "npm start --prefix backend",
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "test:e2e": "npx playwright test",
+    "screenshot": "node scripts/screenshot.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "concurrently": "^9.2.1"
+  }
+}

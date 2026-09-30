@@ -1,0 +1,95 @@
+name: Sync Submodules
+
+# Points each submodule gitlink at the latest commit of its tracked branch.
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-submodules
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout superproject
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: true
+          token: ${{ secrets.SUBMODULE_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Resolve latest submodule commits
+        id: bump
+        env:
+          TOKEN: ${{ secrets.SUBMODULE_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Read access to the submodule repos without embedding the token in any URL we log.
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+
+          changed=""
+
+          while read -r key path; do
+            name="${key#submodule.}"
+            name="${name%.path}"
+            url="$(git config -f .gitmodules --get "submodule.${name}.url")"
+            branch="$(git config -f .gitmodules --get "submodule.${name}.branch" || echo main)"
+
+            # `|| true` so a network/auth failure reaches the message below
+            # instead of dying opaquely on pipefail.
+            new_sha="$(git ls-remote "$url" "refs/heads/${branch}" | cut -f1)" || true
+            if [ -z "$new_sha" ]; then
+              echo "::error::${name}: could not resolve '${branch}' at ${url} (missing branch, or no read access)"
+              exit 1
+            fi
+
+            old_sha="$(git ls-tree HEAD "$path" | awk '{print $3}')"
+
+            if [ "$new_sha" = "$old_sha" ]; then
+              echo "${name}: up to date (${old_sha:0:7})"
+              continue
+            fi
+
+            echo "${name}: ${old_sha:0:7} -> ${new_sha:0:7} (${branch})"
+            git update-index --add --cacheinfo "160000,${new_sha},${path}"
+            changed="${changed}${name} "
+          done < <(git config -f .gitmodules --get-regexp '^submodule\..*\.path$')
+
+          if [ -z "$changed" ]; then
+            echo "All submodules already at branch HEAD."
+            echo "changed=" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=${changed% }" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit and push
+        if: steps.bump.outputs.changed != ''
+        env:
+          CHANGED: ${{ steps.bump.outputs.changed }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git commit -m "chore: bump submodules (${CHANGED})"
+
+          # The scheduled run may race with a push to the superproject; rebase and retry.
+          for attempt in 1 2 3; do
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              exit 0
+            fi
+            echo "Push attempt ${attempt} failed, rebasing onto origin/${GITHUB_REF_NAME}..."
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase "origin/${GITHUB_REF_NAME}"
+          done
+
+          echo "::error::Could not push submodule bump after 3 attempts."
+          exit 1
