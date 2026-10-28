@@ -1,5 +1,5 @@
-import { HttpError } from './http';
-import { parseJsonObject, type ChatMessage } from './categorySuggest';
+import { HttpError } from './http.js';
+import { parseJsonObject, type ChatMessage } from './categorySuggest.js';
 
 const ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 export const DEFAULT_MODEL = 'openai/gpt-oss-120b';

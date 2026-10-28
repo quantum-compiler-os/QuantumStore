@@ -1,5 +1,5 @@
-import { HttpError, route } from './_lib/http';
-import { isLocalRequest } from './_lib/local';
+import { HttpError, route } from './_lib/http.js';
+import { isLocalRequest } from './_lib/local.js';
 
 /**
  * Local-only auto sign-in: lets the Launcher open without a login screen on the machine that

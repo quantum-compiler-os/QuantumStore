@@ -1,4 +1,4 @@
-import { requireOwner } from '../_lib/auth';
+import { requireOwner } from '../_lib/auth.js';
 import {
   SHORTLIST_SIZE,
   distinctGroups,
@@ -10,10 +10,10 @@ import {
   readPicks,
   tokenize,
   MAX_SUGGESTIONS,
-} from '../_lib/categorySuggest';
-import { getCategoryLeaves } from '../_lib/daraz';
-import { chatJson } from '../_lib/groq';
-import { HttpError, route } from '../_lib/http';
+} from '../_lib/categorySuggest.js';
+import { getCategoryLeaves } from '../_lib/daraz.js';
+import { chatJson } from '../_lib/groq.js';
+import { HttpError, route } from '../_lib/http.js';
 
 /**
  * Suggests Daraz categories for a product. Two small Groq calls (group + keywords, then a pick from a

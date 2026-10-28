@@ -1,6 +1,6 @@
-import { requireOwner } from '../_lib/auth';
-import { listingCollection } from '../_lib/db';
-import { queryString, route } from '../_lib/http';
+import { requireOwner } from '../_lib/auth.js';
+import { listingCollection } from '../_lib/db.js';
+import { queryString, route } from '../_lib/http.js';
 
 /** Which of the given QuantumStore product ids are already listed on Daraz. */
 export default route('GET', async (req, res) => {

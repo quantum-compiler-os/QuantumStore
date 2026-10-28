@@ -1,7 +1,7 @@
-import { requireOwner } from '../_lib/auth';
-import { getConnection } from '../_lib/daraz';
-import { groqConfigured } from '../_lib/groq';
-import { route } from '../_lib/http';
+import { requireOwner } from '../_lib/auth.js';
+import { getConnection } from '../_lib/daraz.js';
+import { groqConfigured } from '../_lib/groq.js';
+import { route } from '../_lib/http.js';
 
 export default route('GET', async (req, res) => {
   await requireOwner(req);

@@ -23,7 +23,7 @@ npm run dev
 ```
 
 - Storefront: http://localhost:5173  
-- Launcher (admin + publishing): http://localhost:5174 — `npm run dev:launcher` (starts the backend too), or everything with `npm run dev:all`  
+- Launcher (admin + publishing): http://localhost:5174 — `npm run dev:launcher` (uses the deployed backend), or everything with `npm run dev:all`  
 - API health: http://localhost:5000/api/health  
 
 The storefront has no admin UI. Staff sign in at the Launcher with the same API credentials; access is granted purely by the account's `role` and the owner email in the database (enforced by the API on every call, never by a client-supplied value). Provision the initial admin with `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `.env` plus `npm run create-admin` (see `.env.example`). The Launcher's origin must be listed in the API's `CORS_ORIGINS`.

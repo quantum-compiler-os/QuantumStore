@@ -8,8 +8,7 @@ Staff site for QuantumStore. It is the admin (dashboard, orders, coupons, custom
 cd launcher
 cp .env.example .env     # fill in the Daraz + MongoDB values
 npm install
-npm run dev              # http://127.0.0.1:5174 (backend must be running on :5000)
-npm run dev:full         # same, but starts the backend too
+npm run dev              # http://127.0.0.1:5174, publishes to the deployed backend (QUANTUM_API_URL)
 ```
 
 `npm run dev` serves the `api/` functions under `/launcher-api/*` through a small Vite plugin, so `vercel dev` is not needed.

@@ -121,6 +121,8 @@ Environment (see `launcher/.env.example`):
 | `DARAZ_API_HOST` | Optional, defaults to `https://api.daraz.pk` |
 | `GROQ_API_KEY` / `GROQ_MODEL` | Optional. Enables Daraz category suggestions on Publish; server-only, never `VITE_` |
 
+Do **not** set `LAUNCHER_AUTO_LOGIN_*` on Vercel — a deployed Launcher always asks for the owner's email and password (the backend's `ADMIN_EMAIL` / `ADMIN_PASSWORD`). `DARAZ_REDIRECT_URI` must be exactly a callback registered in the Daraz app; the registered `requestcatcher` address works with **Finish connecting** (paste the code or the whole redirected address).
+
 After deploying: add the Launcher origin to the API's `CORS_ORIGINS`, open **Launcher → Settings → Connect Daraz**, and approve access with the seller account.
 
 ## 5. Stripe webhook

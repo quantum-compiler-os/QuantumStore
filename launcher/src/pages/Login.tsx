@@ -42,8 +42,8 @@ export default function Login() {
         <p className="muted">Publish products to Daraz and QuantumStore in one step.</p>
         {backendDown && (
           <AuthAlert>
-            Can&apos;t reach the QuantumStore backend. Start it (<code>npm run dev:server</code>, or{' '}
-            <code>npm run dev:all</code>) and reload this page.
+            Can&apos;t reach the QuantumStore backend. Check your internet connection and that{' '}
+            <code>QUANTUM_API_URL</code> in <code>launcher/.env</code> is the backend address, then reload this page.
           </AuthAlert>
         )}
         <form onSubmit={handleSubmit}>

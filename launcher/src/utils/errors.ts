@@ -1,15 +1,15 @@
 import axios from 'axios';
 
-const DEV_HINT = 'Start it with `npm run dev` from the project root, then try again.';
+const DEV_HINT = 'Check your internet connection and QUANTUM_API_URL in launcher/.env, then try again.';
 
 const CONNECTION_MESSAGES = {
   offline: 'You appear to be offline. Check your connection and try again.',
   unreachable: import.meta.env.DEV
-    ? `Can't reach the API server on port 5000. ${DEV_HINT}`
+    ? `Can't reach the QuantumStore backend. ${DEV_HINT}`
     : "Can't reach the server right now. Check your connection and try again.",
   timeout: 'The server took too long to respond. Please try again.',
   unavailable: import.meta.env.DEV
-    ? `The API server isn't responding. ${DEV_HINT}`
+    ? `The QuantumStore backend isn't responding. ${DEV_HINT}`
     : 'The server is temporarily unavailable. Please try again in a moment.',
   server: 'Something went wrong on our end. Please try again in a moment.',
 };

@@ -73,17 +73,21 @@ function launcherApi() {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), launcherApi()],
-  server: {
-    host: '127.0.0.1',
-    port: 5174,
-    proxy: {
-      '/api': { target: 'http://127.0.0.1:5000', changeOrigin: true },
-      '/uploads': { target: 'http://127.0.0.1:5000', changeOrigin: true },
+export default defineConfig(({ mode }) => {
+  // The Launcher only runs on this PC and talks to the deployed QuantumStore backend (QUANTUM_API_URL).
+  const backend = (loadEnv(mode, process.cwd(), '').QUANTUM_API_URL || 'http://127.0.0.1:5000').replace(/\/$/, '');
+  return {
+    plugins: [react(), launcherApi()],
+    server: {
+      host: '127.0.0.1',
+      port: 5174,
+      proxy: {
+        '/api': { target: backend, changeOrigin: true },
+        '/uploads': { target: backend, changeOrigin: true },
+      },
     },
-  },
-  test: {
-    include: ['tests/**/*.test.ts'],
-  },
+    test: {
+      include: ['tests/**/*.test.ts'],
+    },
+  };
 });

@@ -1,6 +1,6 @@
-import { verifyState } from '../_lib/auth';
-import { darazConfig, exchangeCode } from '../_lib/daraz';
-import { queryString, route } from '../_lib/http';
+import { verifyState } from '../_lib/auth.js';
+import { darazConfig, exchangeCode } from '../_lib/daraz.js';
+import { queryString, route } from '../_lib/http.js';
 
 /**
  * Daraz redirects the browser here after consent, so there is no bearer token to check.

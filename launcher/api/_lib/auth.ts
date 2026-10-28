@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { HttpError, type Req } from './http';
+import { HttpError, type Req } from './http.js';
 
 function quantumApi() {
   return (process.env.QUANTUM_API_URL || 'http://127.0.0.1:5000').replace(/\/$/, '');

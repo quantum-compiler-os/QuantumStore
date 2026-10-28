@@ -1,5 +1,5 @@
-import { HttpError } from './http';
-import { connectionCollection, type DarazConnection } from './db';
+import { HttpError } from './http.js';
+import { connectionCollection, type DarazConnection } from './db.js';
 import {
   buildImageMigrateXml,
   buildProductXml,
@@ -10,7 +10,7 @@ import {
   type DarazAttribute,
   type DarazCategoryLeaf,
   type DarazProductInput,
-} from './darazCore';
+} from './darazCore.js';
 
 /** A failed Daraz call; surfaces to the client as a 422 carrying Daraz's own message. */
 export class DarazError extends HttpError {

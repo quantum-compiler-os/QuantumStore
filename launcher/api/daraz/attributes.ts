@@ -1,7 +1,7 @@
-import { requireOwner } from '../_lib/auth';
-import { getCategoryAttributes } from '../_lib/daraz';
-import { AUTO_ATTRIBUTES } from '../_lib/darazCore';
-import { HttpError, queryString, route } from '../_lib/http';
+import { requireOwner } from '../_lib/auth.js';
+import { getCategoryAttributes } from '../_lib/daraz.js';
+import { AUTO_ATTRIBUTES } from '../_lib/darazCore.js';
+import { HttpError, queryString, route } from '../_lib/http.js';
 
 /** Category attributes the seller still has to supply (the launcher fills the rest itself). */
 export default route('GET', async (req, res) => {

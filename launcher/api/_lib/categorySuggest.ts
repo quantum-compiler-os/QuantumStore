@@ -4,8 +4,8 @@
  * leaves of that group are ranked locally, and it then chooses among a short shortlist. Everything it
  * answers is checked against the real list, so an invented id or group can never get through.
  */
-import { HttpError } from './http';
-import type { DarazCategoryLeaf } from './darazCore';
+import { HttpError } from './http.js';
+import type { DarazCategoryLeaf } from './darazCore.js';
 
 export type ChatMessage = { role: 'system' | 'user'; content: string };
 

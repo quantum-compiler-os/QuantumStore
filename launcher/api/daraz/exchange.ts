@@ -1,7 +1,7 @@
-import { requireOwner } from '../_lib/auth';
-import { exchangeCode } from '../_lib/daraz';
-import { extractAuthCode } from '../_lib/darazCore';
-import { HttpError, route } from '../_lib/http';
+import { requireOwner } from '../_lib/auth.js';
+import { exchangeCode } from '../_lib/daraz.js';
+import { extractAuthCode } from '../_lib/darazCore.js';
+import { HttpError, route } from '../_lib/http.js';
 
 /**
  * Manual finish for the OAuth flow: the owner pastes the code (or the whole redirected address)

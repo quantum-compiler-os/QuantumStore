@@ -1,18 +1,18 @@
-import { requireOwner } from '../_lib/auth';
-import { listingCollection } from '../_lib/db';
+import { requireOwner } from '../_lib/auth.js';
+import { listingCollection } from '../_lib/db.js';
 import {
   createProduct,
   getAccessToken,
   getCategoryAttributes,
   migrateImage,
-} from '../_lib/daraz';
+} from '../_lib/daraz.js';
 import {
   AUTO_ATTRIBUTES,
   cloudinaryToJpeg,
   specsToHtml,
   type DarazProductInput,
-} from '../_lib/darazCore';
-import { HttpError, route } from '../_lib/http';
+} from '../_lib/darazCore.js';
+import { HttpError, route } from '../_lib/http.js';
 
 const MAX_IMAGES = 8;
 
