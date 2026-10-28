@@ -12,6 +12,8 @@ launcherApi.interceptors.request.use((config) => {
 export type DarazStatus = {
   configured: boolean;
   redirectUri: string | null;
+  /** True when GROQ_API_KEY is set, i.e. category suggestions are available. */
+  aiConfigured: boolean;
   connected: boolean;
   account: string | null;
   country: string | null;
@@ -56,6 +58,16 @@ export async function getDarazStatus() {
 export async function getDarazConnectUrl() {
   const { data } = await launcherApi.get<{ url: string }>('/daraz/connect');
   return data.url;
+}
+
+export type CategorySuggestion = { id: number; name: string; path: string };
+
+export async function suggestDarazCategories(input: { name: string; brand?: string; description?: string }) {
+  const { data } = await launcherApi.post<{ group: string | null; suggestions: CategorySuggestion[] }>(
+    '/ai/suggest-category',
+    input,
+  );
+  return data;
 }
 
 /** Finish connecting by hand: `input` is the code, or the whole address Daraz redirected to. */

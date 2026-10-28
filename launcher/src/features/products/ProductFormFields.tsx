@@ -11,12 +11,21 @@ type Props = {
   form: ProductForm;
   setForm: Dispatch<SetStateAction<ProductForm>>;
   categories: string[];
+  /** Hide the store category when something else (the Daraz category) decides it. */
+  hideCategory?: boolean;
   onError: (message: string) => void;
   onUploadingChange?: (uploading: boolean) => void;
 };
 
 /** The product fields shared by "Publish" and "Edit": details, Cloudinary image upload, variants, specs. */
-export default function ProductFormFields({ form, setForm, categories, onError, onUploadingChange }: Props) {
+export default function ProductFormFields({
+  form,
+  setForm,
+  categories,
+  hideCategory = false,
+  onError,
+  onUploadingChange,
+}: Props) {
   const toast = useToast();
   const createCategoryMut = useCreateCategory();
   const [uploading, setUploading] = useState(false);
@@ -148,28 +157,30 @@ export default function ProductFormFields({ form, setForm, categories, onError, 
             onChange={(e) => setForm({ ...form, stock: e.target.value })}
           />
         </label>
-        <label>
-          Category
-          <select
-            className="input"
-            value={form.category}
-            onChange={(e) => {
-              if (e.target.value === NEW_CATEGORY_VALUE) {
-                setAddingCategory(true);
-                setCategoryError('');
-                return;
-              }
-              setForm({ ...form, category: e.target.value });
-            }}
-          >
-            {categories.map((category) => (
-              <option key={category} value={category}>
-                {category}
-              </option>
-            ))}
-            <option value={NEW_CATEGORY_VALUE}>+ Add new category…</option>
-          </select>
-        </label>
+        {!hideCategory && (
+          <label>
+            Category
+            <select
+              className="input"
+              value={form.category}
+              onChange={(e) => {
+                if (e.target.value === NEW_CATEGORY_VALUE) {
+                  setAddingCategory(true);
+                  setCategoryError('');
+                  return;
+                }
+                setForm({ ...form, category: e.target.value });
+              }}
+            >
+              {categories.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+              <option value={NEW_CATEGORY_VALUE}>+ Add new category…</option>
+            </select>
+          </label>
+        )}
         <label>
           Product type
           <select

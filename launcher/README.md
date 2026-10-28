@@ -9,6 +9,7 @@ cd launcher
 cp .env.example .env     # fill in the Daraz + MongoDB values
 npm install
 npm run dev              # http://127.0.0.1:5174 (backend must be running on :5000)
+npm run dev:full         # same, but starts the backend too
 ```
 
 `npm run dev` serves the `api/` functions under `/launcher-api/*` through a small Vite plugin, so `vercel dev` is not needed.
@@ -22,6 +23,12 @@ On your own computer there is no login screen: with `LAUNCHER_AUTO_LOGIN_EMAIL` 
 3. If the registered callback is the Launcher's own (`/launcher-api/daraz/callback`), the Launcher finishes by itself. If it is something else (for example a request-catcher page), Daraz sends you there with `?code=…` in the address: copy that address (or just the code) and paste it into **Finish connecting**. The code is single-use and expires after 30 minutes.
 
 Tokens are stored in the `launcher_daraz` collection and refreshed automatically.
+
+## Category suggestions (Groq)
+
+Set `GROQ_API_KEY` in `launcher/.env` (create one at https://console.groq.com/keys; `GROQ_MODEL` is optional, default `openai/gpt-oss-120b`) and restart. On **Publish** with Daraz ticked, a "Suggested for this product" card proposes up to three Daraz categories from the product name (plus brand and description). It runs by itself a moment after you stop typing the name, while no category is chosen yet, and again on demand with **Suggest again**. Click a suggestion to select it.
+
+The key stays on the server. Groq never receives the whole category tree: one call picks the Daraz group and keywords, the group's categories are ranked locally, and a second call picks from a shortlist of 40. Every answer is checked against the real category list, so an invented category can't be selected. Each suggestion costs two short Groq requests.
 
 ## Publish a product
 

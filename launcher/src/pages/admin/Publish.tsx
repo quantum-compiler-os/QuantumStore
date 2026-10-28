@@ -1,18 +1,16 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../api/client';
-import {
-  getDarazAttributes,
-  getDarazCategories,
-  publishToDaraz,
-  type DarazAttribute,
-  type DarazPublishResult,
-} from '../../api/daraz';
+import { getDarazAttributes, getDarazCategories, publishToDaraz, type DarazPublishResult } from '../../api/daraz';
 import type { Product } from '../../api/types';
+import { addCommission, commissionFor, groupOf } from '../../features/daraz/categoryGroups';
 import DarazAuthPrompt from '../../features/daraz/DarazAuthPrompt';
-import { addCommission, commissionFor, filterLeaves, groupOf, groupsFromLeaves } from '../../features/daraz/categoryGroups';
+import DarazPanel from '../../features/daraz/DarazPanel';
+import { initialDaraz, saveDefaults, slugSku, type DarazForm } from '../../features/daraz/darazForm';
 import { useDarazConnection } from '../../features/daraz/useDarazConnection';
+import { ensureStoreCategory } from '../../features/products/ensureCategory';
+import { ensurePublicImages } from '../../features/products/publicImages';
 import ProductFormFields from '../../features/products/ProductFormFields';
 import {
   buildProductPayload,
@@ -24,92 +22,20 @@ import { queryKeys } from '../../hooks/queryKeys';
 import { useProductCategoryNames } from '../../hooks/useProducts';
 import { getErrorMessage } from '../../utils/errors';
 
-const DEFAULTS_KEY = 'ql_daraz_defaults';
-
-type DarazForm = {
-  categoryId: number | null;
-  categoryLabel: string;
-  sellerSku: string;
-  price: string;
-  specialPrice: string;
-  quantity: string;
-  weight: string;
-  length: string;
-  width: string;
-  height: string;
-  content: string;
-  attributes: Record<string, string>;
-};
-
-type Remembered = Pick<DarazForm, 'categoryId' | 'categoryLabel' | 'weight' | 'length' | 'width' | 'height'>;
-
-function loadDefaults(): Partial<Remembered> {
-  try {
-    return JSON.parse(localStorage.getItem(DEFAULTS_KEY) || '{}');
-  } catch {
-    return {};
-  }
-}
-
-function saveDefaults(d: DarazForm) {
-  try {
-    const value: Remembered = {
-      categoryId: d.categoryId,
-      categoryLabel: d.categoryLabel,
-      weight: d.weight,
-      length: d.length,
-      width: d.width,
-      height: d.height,
-    };
-    localStorage.setItem(DEFAULTS_KEY, JSON.stringify(value));
-  } catch {
-    /* private mode — remembering is a convenience only */
-  }
-}
-
-function initialDaraz(): DarazForm {
-  const saved = loadDefaults();
-  return {
-    categoryId: saved.categoryId ?? null,
-    categoryLabel: saved.categoryLabel ?? '',
-    sellerSku: '',
-    price: '',
-    specialPrice: '',
-    quantity: '',
-    weight: saved.weight ?? '',
-    length: saved.length ?? '',
-    width: saved.width ?? '',
-    height: saved.height ?? '',
-    content: '',
-    attributes: {},
-  };
-}
-
 type StepState = { status: 'idle' | 'running' | 'done' | 'failed' | 'skipped'; message?: string };
 
-function slugSku(name: string, suffix: string) {
-  const base = name
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 24);
-  return `${base || 'PRODUCT'}-${suffix}`;
-}
+const STEP_TEXT: Record<StepState['status'], string> = {
+  idle: 'Waiting',
+  running: 'Working…',
+  done: 'Published',
+  failed: 'Failed',
+  skipped: 'Not selected',
+};
 
 function StepRow({ label, step }: { label: string; step: StepState }) {
-  const text =
-    step.status === 'running'
-      ? 'Working…'
-      : step.status === 'done'
-        ? 'Published'
-        : step.status === 'failed'
-          ? 'Failed'
-          : step.status === 'skipped'
-            ? 'Not selected'
-            : 'Waiting';
   return (
     <li className={`publish-step publish-step-${step.status}`}>
-      <strong>{label}</strong> — {text}
+      <strong>{label}</strong> — {STEP_TEXT[step.status]}
       {step.message && <span className="muted"> · {step.message}</span>}
     </li>
   );
@@ -124,12 +50,6 @@ export default function Publish() {
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [categorySearch, setCategorySearch] = useState('');
-  const [group, setGroup] = useState(() => {
-    const saved = loadDefaults().categoryLabel;
-    return saved ? groupOf(saved) : '';
-  });
-  const [showOptional, setShowOptional] = useState(false);
   const [storeStep, setStoreStep] = useState<StepState>({ status: 'idle' });
   const [darazStep, setDarazStep] = useState<StepState>({ status: 'idle' });
   const [createdProduct, setCreatedProduct] = useState<Product | null>(null);
@@ -155,31 +75,24 @@ export default function Publish() {
   const darazReady = Boolean(status?.configured && status.connected);
   const darazOn = toDaraz && darazReady;
 
-  const { data: leaves } = useQuery({
+  const leavesQuery = useQuery({
     queryKey: ['daraz', 'categories'],
     queryFn: getDarazCategories,
     enabled: darazOn,
     staleTime: 60 * 60 * 1000,
     retry: false,
   });
-  const { data: attributes } = useQuery({
+  const attributesQuery = useQuery({
     queryKey: ['daraz', 'attributes', daraz.categoryId],
     queryFn: () => getDarazAttributes(daraz.categoryId as number),
     enabled: darazOn && daraz.categoryId !== null,
     retry: false,
   });
 
-  const groups = useMemo(() => groupsFromLeaves(leaves || []), [leaves]);
-  const matches = useMemo(() => filterLeaves(leaves || [], group, categorySearch), [leaves, group, categorySearch]);
-  const selectedCommission = daraz.categoryLabel ? commissionFor(groupOf(daraz.categoryLabel)) : null;
   // The store price is already in rupees; Daraz gets it with the category's commission added on top.
-  const autoPrice = form.price ? String(addCommission(Number(form.price), selectedCommission)) : '';
-  const priceNote =
-    !form.price || daraz.categoryId === null
-      ? 'Pick a category to add its Daraz commission.'
-      : selectedCommission === null
-        ? 'No commission known for this category, so the store price is used as entered.'
-        : `Rs ${Number(form.price).toLocaleString()} + ${selectedCommission.toFixed(2)}% commission`;
+  const commission = daraz.categoryLabel ? commissionFor(groupOf(daraz.categoryLabel)) : null;
+  const autoPrice = form.price ? String(addCommission(Number(form.price), commission)) : '';
+  const autoSku = slugSku(form.name, skuSuffix.current);
 
   const showResult = storeStep.status !== 'idle' || darazStep.status !== 'idle';
   const canRetryDaraz = darazStep.status === 'failed' && !busy;
@@ -187,35 +100,6 @@ export default function Publish() {
     (storeStep.status === 'done' || storeStep.status === 'skipped') &&
     (darazStep.status === 'done' || darazStep.status === 'skipped');
   const locked = busy || allDone;
-  const autoSku = slugSku(form.name, skuSuffix.current);
-  const visibleAttributes = (attributes || []).filter((a) => a.mandatory || showOptional);
-
-  function setDarazField<K extends keyof DarazForm>(key: K, value: DarazForm[K]) {
-    setDaraz((prev) => ({ ...prev, [key]: value }));
-  }
-
-  function renderAttribute(attr: DarazAttribute) {
-    const value = daraz.attributes[attr.name] || '';
-    const set = (v: string) => setDaraz((prev) => ({ ...prev, attributes: { ...prev.attributes, [attr.name]: v } }));
-    return (
-      <label key={attr.name}>
-        {attr.label}
-        {attr.mandatory ? ' *' : ''}
-        {attr.options.length > 0 && attr.inputType !== 'multiSelect' ? (
-          <select className="input" value={value} onChange={(e) => set(e.target.value)}>
-            <option value="">Select…</option>
-            {attr.options.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <input className="input" value={value} onChange={(e) => set(e.target.value)} />
-        )}
-      </label>
-    );
-  }
 
   function validate(): string {
     if (!toStore && !toDaraz) return 'Choose at least one place to publish to';
@@ -240,7 +124,7 @@ export default function Publish() {
     return '';
   }
 
-  async function runDaraz(quantumProductId: string | undefined) {
+  async function runDaraz(quantumProductId: string | undefined, imageUrls: string[]) {
     setDarazStep({ status: 'running' });
     saveDefaults(daraz);
     try {
@@ -254,7 +138,7 @@ export default function Publish() {
         quantity: Number(daraz.quantity || form.stock),
         price: Number(daraz.price || autoPrice),
         specialPrice: daraz.specialPrice ? Number(daraz.specialPrice) : null,
-        images: form.images.map((i) => i.url),
+        images: imageUrls,
         specs: parseSpecs(form.specsText),
         package: {
           weight: Number(daraz.weight),
@@ -284,15 +168,49 @@ export default function Publish() {
     setError('');
     setBusy(true);
 
+    // Daraz fetches images from the internet, so anything not on a public https address is uploaded again first.
+    let images = form.images;
+    try {
+      const fixed = await ensurePublicImages(images, {
+        download: async (url) => (await api.get<Blob>(url, { responseType: 'blob', baseURL: '' })).data,
+        upload: async (file) => {
+          const body = new FormData();
+          body.append('image', file);
+          const { data } = await api.post<{ url: string; thumbnail?: string }>('/uploads', body, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+          return data;
+        },
+      });
+      if (fixed.changed) {
+        images = fixed.images;
+        setForm((prev) => ({ ...prev, images: fixed.images }));
+      }
+    } catch (err) {
+      if (darazOn) {
+        setDarazStep({ status: 'failed', message: getErrorMessage(err, 'Could not prepare the images') });
+        setBusy(false);
+        return;
+      }
+    }
+
     let productId = createdProduct?._id;
     if (toStore && !createdProduct) {
       setStoreStep({ status: 'running' });
       try {
-        const { data } = await api.post<Product>('/products', buildProductPayload(form));
+        // With Daraz on, the Daraz category group decides the store category, so it is only picked once.
+        const category =
+          darazOn && daraz.categoryId !== null
+            ? await ensureStoreCategory(groupOf(daraz.categoryLabel), categories)
+            : form.category;
+        const { data } = await api.post<Product>('/products', buildProductPayload({ ...form, images, category }));
         setCreatedProduct(data);
         productId = data._id;
-        setStoreStep({ status: 'done', message: 'Images are on Cloudinary' });
-        await queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+        setStoreStep({ status: 'done', message: 'Product created' });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.products.all }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.categories }),
+        ]);
       } catch (err) {
         setStoreStep({ status: 'failed', message: getErrorMessage(err, 'Could not create the product') });
         setBusy(false);
@@ -302,7 +220,7 @@ export default function Publish() {
       setStoreStep({ status: 'skipped' });
     }
 
-    if (darazOn) await runDaraz(productId);
+    if (darazOn) await runDaraz(productId, images.map((i) => i.url));
     else setDarazStep({ status: 'skipped' });
     setBusy(false);
   }
@@ -318,13 +236,12 @@ export default function Publish() {
     skuSuffix.current = Math.random().toString(36).slice(2, 6).toUpperCase();
   }
 
-
   return (
     <div>
       <h1>Publish product</h1>
       <p className="muted">
-        Fill the form once. Images go to Cloudinary through the QuantumStore backend, and the product is created
-        on QuantumStore and Daraz together.
+        Fill the form once. Images go to Cloudinary through the QuantumStore backend, and the product is created on
+        QuantumStore and Daraz together.
       </p>
 
       <form className="admin-form" onSubmit={handlePublish}>
@@ -333,21 +250,33 @@ export default function Publish() {
             form={form}
             setForm={setForm}
             categories={categories}
+            hideCategory={darazOn}
             onError={setError}
             onUploadingChange={setUploading}
           />
 
           <h2>Publish to</h2>
-          <div className="admin-quick">
-            <label className="checkbox-row">
+          <div className="targets">
+            <label className="target-card">
               <input type="checkbox" checked={toStore} onChange={(e) => setToStore(e.target.checked)} />
-              QuantumStore
+              <span>
+                <strong>QuantumStore</strong>
+                <small>Your own shop. Images are stored on Cloudinary.</small>
+              </span>
             </label>
-            <label className="checkbox-row">
+            <label className="target-card">
               <input type="checkbox" checked={toDaraz} onChange={(e) => setToDaraz(e.target.checked)} />
-              Daraz
+              <span>
+                <strong>Daraz</strong>
+                <small>
+                  {darazReady
+                    ? `Listed on Seller Center${status?.account ? ` as ${status.account}` : ''}.`
+                    : 'Needs a one-time connection to your seller account.'}
+                </small>
+              </span>
             </label>
           </div>
+
           {toDaraz && !darazReady && (
             <div className="admin-quick" style={{ alignItems: 'center' }}>
               <p className="muted" style={{ margin: 0 }}>
@@ -384,215 +313,59 @@ export default function Publish() {
           )}
 
           {darazOn && (
-            <div className="daraz-panel">
-              <h2>Daraz details</h2>
-              <p className="muted">
-                Name, description, brand, images and specs come from the form above. Only what Daraz needs extra is
-                asked here, and the package and category are remembered for next time.
-              </p>
-
-              <div className="form-grid">
-                <label>
-                  Daraz category group *
-                  <select
-                    className="input"
-                    value={group}
-                    onChange={(e) => {
-                      setGroup(e.target.value);
-                      setCategorySearch('');
-                    }}
-                  >
-                    <option value="">{leaves ? 'All groups' : 'Loading Daraz categories…'}</option>
-                    {groups.map((g) => {
-                      const commission = commissionFor(g);
-                      return (
-                        <option key={g} value={g}>
-                          {g}
-                          {commission !== null ? ` — ${commission.toFixed(2)}% commission` : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </label>
-                <label>
-                  Daraz category * (search inside the group)
-                  <input
-                    className="input"
-                    placeholder={daraz.categoryLabel || 'e.g. earbuds'}
-                    value={categorySearch}
-                    onChange={(e) => setCategorySearch(e.target.value)}
-                  />
-                </label>
-              </div>
-              {daraz.categoryId !== null && (
-                <p className="muted">
-                  Selected: {daraz.categoryLabel || daraz.categoryId}
-                  {selectedCommission !== null && ` · Daraz commission ${selectedCommission.toFixed(2)}%`}
-                </p>
-              )}
-              {matches.length > 0 && (
-                <select
-                  className="input"
-                  size={Math.min(8, matches.length)}
-                  onChange={(e) => {
-                    const leaf = matches.find((l) => String(l.id) === e.target.value);
-                    if (!leaf) return;
-                    setDaraz((prev) => ({ ...prev, categoryId: leaf.id, categoryLabel: leaf.path, attributes: {} }));
-                    setGroup(groupOf(leaf.path));
-                    setCategorySearch('');
-                  }}
-                >
-                  {matches.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.path}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {leaves && group && matches.length === 0 && (
-                <p className="muted">No category in this group matches that search.</p>
-              )}
-
-              <div className="form-grid">
-                <label>
-                  Daraz price (Rs) — {priceNote}
-                  <input
-                    className="input"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder={autoPrice || 'Store price + commission'}
-                    value={daraz.price}
-                    onChange={(e) => setDarazField('price', e.target.value)}
-                  />
-                </label>
-                <label>
-                  Special price (Rs, optional)
-                  <input
-                    className="input"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={daraz.specialPrice}
-                    onChange={(e) => setDarazField('specialPrice', e.target.value)}
-                  />
-                </label>
-                <label>
-                  Quantity
-                  <input
-                    className="input"
-                    type="number"
-                    min="0"
-                    placeholder={form.stock || 'Required'}
-                    value={daraz.quantity}
-                    onChange={(e) => setDarazField('quantity', e.target.value)}
-                  />
-                </label>
-                <label>
-                  Seller SKU
-                  <input
-                    className="input"
-                    placeholder={autoSku}
-                    value={daraz.sellerSku}
-                    onChange={(e) => setDarazField('sellerSku', e.target.value)}
-                  />
-                </label>
-                <label>
-                  Package weight (kg) *
-                  <input
-                    className="input"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={daraz.weight}
-                    onChange={(e) => setDarazField('weight', e.target.value)}
-                  />
-                </label>
-                <label>
-                  Length (cm) *
-                  <input
-                    className="input"
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={daraz.length}
-                    onChange={(e) => setDarazField('length', e.target.value)}
-                  />
-                </label>
-                <label>
-                  Width (cm) *
-                  <input
-                    className="input"
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={daraz.width}
-                    onChange={(e) => setDarazField('width', e.target.value)}
-                  />
-                </label>
-                <label>
-                  Height (cm) *
-                  <input
-                    className="input"
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={daraz.height}
-                    onChange={(e) => setDarazField('height', e.target.value)}
-                  />
-                </label>
-                <label>
-                  What&apos;s in the box
-                  <input
-                    className="input"
-                    placeholder={form.name || 'Defaults to the product name'}
-                    value={daraz.content}
-                    onChange={(e) => setDarazField('content', e.target.value)}
-                  />
-                </label>
-              </div>
-
-              {daraz.categoryId !== null && attributes && attributes.length > 0 && (
-                <>
-                  <h3>Category fields</h3>
-                  <div className="form-grid">{visibleAttributes.map(renderAttribute)}</div>
-                  {attributes.some((a) => !a.mandatory) && (
-                    <button type="button" className="text-btn" onClick={() => setShowOptional((v) => !v)}>
-                      {showOptional ? 'Hide optional fields' : 'Show optional fields'}
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
+            <DarazPanel
+              daraz={daraz}
+              setDaraz={setDaraz}
+              productName={form.name}
+              productBrand={form.brand}
+              productDescription={form.description}
+              aiConfigured={Boolean(status?.aiConfigured)}
+              storePrice={form.price}
+              storeStock={form.stock}
+              commission={commission}
+              autoPrice={autoPrice}
+              autoSku={autoSku}
+              account={status?.account}
+              storeCategory={toStore && daraz.categoryId !== null ? groupOf(daraz.categoryLabel) : ''}
+              leaves={leavesQuery.data}
+              leavesLoading={leavesQuery.isLoading}
+              leavesError={leavesQuery.error ? getErrorMessage(leavesQuery.error, 'Could not load Daraz categories') : ''}
+              attributes={attributesQuery.data}
+              attributesLoading={attributesQuery.isLoading}
+            />
           )}
         </fieldset>
 
-        {error && <p className="form-error">{error}</p>}
-
-        {showResult && (
-          <ul className="publish-steps" aria-live="polite">
-            <StepRow label="QuantumStore" step={storeStep} />
-            <StepRow label="Daraz" step={darazStep} />
-          </ul>
-        )}
-        {createdProduct && (
-          <p className="muted">
-            QuantumStore product created: <Link to="/products">view in Products</Link>
-            {darazResult && ` · Daraz SKU ${darazResult.sellerSku}`}
-          </p>
-        )}
-
-        <div className="admin-quick">
-          {!allDone && (
-            <button type="submit" className="btn btn-primary" disabled={busy || uploading}>
-              {busy ? 'Publishing…' : canRetryDaraz ? 'Retry Daraz' : 'Publish'}
-            </button>
+        <div className="publish-bar">
+          {error && (
+            <p className="form-error" role="alert" style={{ margin: 0 }}>
+              {error}
+            </p>
           )}
-          {allDone && (
-            <button type="button" className="btn btn-primary" onClick={startAnother}>
-              Publish another
-            </button>
+          {showResult && (
+            <ul className="publish-steps" aria-live="polite">
+              <StepRow label="QuantumStore" step={storeStep} />
+              <StepRow label="Daraz" step={darazStep} />
+            </ul>
           )}
+          {createdProduct && (
+            <p className="muted" style={{ margin: 0 }}>
+              QuantumStore product created: <Link to="/products">view in Products</Link>
+              {darazResult && ` · Daraz SKU ${darazResult.sellerSku}`}
+            </p>
+          )}
+          <div className="admin-quick">
+            {!allDone && (
+              <button type="submit" className="btn btn-primary" disabled={busy || uploading}>
+                {busy ? 'Publishing…' : canRetryDaraz ? 'Retry Daraz' : 'Publish'}
+              </button>
+            )}
+            {allDone && (
+              <button type="button" className="btn btn-primary" onClick={startAnother}>
+                Publish another
+              </button>
+            )}
+          </div>
         </div>
       </form>
     </div>

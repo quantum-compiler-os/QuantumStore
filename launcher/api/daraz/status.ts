@@ -1,5 +1,6 @@
 import { requireOwner } from '../_lib/auth';
 import { getConnection } from '../_lib/daraz';
+import { groqConfigured } from '../_lib/groq';
 import { route } from '../_lib/http';
 
 export default route('GET', async (req, res) => {
@@ -11,6 +12,7 @@ export default route('GET', async (req, res) => {
     configured,
     // Not a secret; shown so a "redirect uri does not match" error is easy to compare with the Daraz console.
     redirectUri: process.env.DARAZ_REDIRECT_URI || null,
+    aiConfigured: groqConfigured(),
     connected: Boolean(conn),
     account: conn?.account || null,
     country: conn?.country || null,

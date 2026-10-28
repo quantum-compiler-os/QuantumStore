@@ -119,6 +119,7 @@ Environment (see `launcher/.env.example`):
 | `DARAZ_APP_KEY` / `DARAZ_APP_SECRET` | From the Daraz Open Platform app console. **Server-only** — never prefix with `VITE_` |
 | `DARAZ_REDIRECT_URI` | `https://<launcher-host>/launcher-api/daraz/callback` — register the same URL in the Daraz app |
 | `DARAZ_API_HOST` | Optional, defaults to `https://api.daraz.pk` |
+| `GROQ_API_KEY` / `GROQ_MODEL` | Optional. Enables Daraz category suggestions on Publish; server-only, never `VITE_` |
 
 After deploying: add the Launcher origin to the API's `CORS_ORIGINS`, open **Launcher → Settings → Connect Daraz**, and approve access with the seller account.
 
