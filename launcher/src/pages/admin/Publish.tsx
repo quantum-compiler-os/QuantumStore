@@ -5,6 +5,7 @@ import api from '../../api/client';
 import {
   getDarazAttributes,
   getDarazCategories,
+  getDarazConnectUrl,
   getDarazStatus,
   publishToDaraz,
   type DarazAttribute,
@@ -134,7 +135,13 @@ export default function Publish() {
   const { data: categoryNames } = useProductCategoryNames();
   const categories = categoryNames?.length ? categoryNames : ['Laptops'];
 
-  const { data: status } = useQuery({ queryKey: ['daraz', 'status'], queryFn: getDarazStatus, retry: false });
+  const {
+    data: status,
+    error: statusError,
+    isLoading: statusLoading,
+    refetch: refetchStatus,
+  } = useQuery({ queryKey: ['daraz', 'status'], queryFn: getDarazStatus, retry: false });
+  const [connecting, setConnecting] = useState(false);
   const darazReady = Boolean(status?.configured && status.connected);
   const { data: settings } = useSettings();
   // Store prices are in the base currency; Daraz wants rupees.
@@ -172,6 +179,16 @@ export default function Publish() {
   const autoSku = slugSku(form.name, skuSuffix.current);
   const visibleAttributes = (attributes || []).filter((a) => a.mandatory || showOptional);
 
+  async function connectDaraz() {
+    setConnecting(true);
+    try {
+      window.location.assign(await getDarazConnectUrl());
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not start the Daraz connection'));
+      setConnecting(false);
+    }
+  }
+
   function setDarazField<K extends keyof DarazForm>(key: K, value: DarazForm[K]) {
     setDaraz((prev) => ({ ...prev, [key]: value }));
   }
@@ -202,7 +219,7 @@ export default function Publish() {
   function validate(): string {
     if (!toStore && !toDaraz) return 'Choose at least one place to publish to';
     if (!form.images.length) return 'At least one product image is required';
-    if (toDaraz && !darazReady) return 'Daraz is not connected — connect it in Settings or untick Daraz';
+    if (toDaraz && !darazReady) return 'Daraz is not connected — press Connect Daraz above, or untick Daraz';
     if (darazOn) {
       if (daraz.categoryId === null) return 'Pick a Daraz category';
       if (!(Number(daraz.price || convertedPrice) > 0)) return 'Enter a price for Daraz';
@@ -326,22 +343,32 @@ export default function Publish() {
               QuantumStore
             </label>
             <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={toDaraz && darazReady}
-                disabled={!darazReady}
-                onChange={(e) => setToDaraz(e.target.checked)}
-              />
+              <input type="checkbox" checked={toDaraz} onChange={(e) => setToDaraz(e.target.checked)} />
               Daraz
             </label>
           </div>
-          {!darazReady && (
-            <p className="muted">
-              {status && !status.configured
-                ? 'Daraz app credentials are not configured on this deployment.'
-                : 'Daraz is not connected yet.'}{' '}
-              <Link to="/settings">Open Settings to connect it</Link>.
-            </p>
+          {toDaraz && !darazReady && (
+            <div className="inline-actions" style={{ alignItems: 'center' }}>
+              <p className="muted" style={{ margin: 0 }}>
+                {statusLoading
+                  ? 'Checking the Daraz connection…'
+                  : statusError
+                    ? `Could not check the Daraz connection: ${getErrorMessage(statusError, 'unknown error')}`
+                    : status && !status.configured
+                      ? 'Daraz app credentials are missing: set DARAZ_APP_KEY, DARAZ_APP_SECRET and DARAZ_REDIRECT_URI in launcher/.env and restart the Launcher.'
+                      : 'Daraz is not connected yet — connect it once and this box works from then on.'}
+              </p>
+              {statusError && (
+                <button type="button" className="btn btn-ghost" onClick={() => refetchStatus()}>
+                  Retry
+                </button>
+              )}
+              {!statusLoading && !statusError && status?.configured && (
+                <button type="button" className="btn btn-secondary" disabled={connecting} onClick={connectDaraz}>
+                  {connecting ? 'Opening Daraz…' : 'Connect Daraz'}
+                </button>
+              )}
+            </div>
           )}
 
           {darazOn && (

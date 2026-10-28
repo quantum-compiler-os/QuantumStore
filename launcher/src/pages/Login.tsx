@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { getErrorMessage } from '../utils/errors';
 
 export default function Login() {
-  const { login, logout, user, loading, isStaff } = useAuth();
+  const { login, logout, user, loading, isStaff, backendDown } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -40,6 +40,12 @@ export default function Login() {
         </p>
         <h1>Sign in</h1>
         <p className="muted">Publish products to Daraz and QuantumStore in one step.</p>
+        {backendDown && (
+          <AuthAlert>
+            Can&apos;t reach the QuantumStore backend. Start it (<code>npm run dev:server</code>, or{' '}
+            <code>npm run dev:all</code>) and reload this page.
+          </AuthAlert>
+        )}
         <form onSubmit={handleSubmit}>
           <div className="auth-field">
             <label htmlFor="login-email">Email</label>
