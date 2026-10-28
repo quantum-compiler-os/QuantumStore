@@ -5,6 +5,7 @@ import {
   buildProductXml,
   cloudinaryToJpeg,
   describeDarazError,
+  extractAuthCode,
   flattenCategoryTree,
   normalizeAttributes,
   signRequest,
@@ -138,5 +139,22 @@ describe('OAuth state', () => {
     expect(verifyState(state, 'secret', now + 11 * 60 * 1000)).toBe(false);
     expect(verifyState(`${now}.deadbeef`, 'secret', now + 1000)).toBe(false);
     expect(verifyState('', 'secret', now)).toBe(false);
+  });
+});
+
+describe('extractAuthCode', () => {
+  it('takes a bare code or the code out of a pasted redirect address', () => {
+    expect(extractAuthCode('0_506344_AbC123xyz')).toBe('0_506344_AbC123xyz');
+    expect(extractAuthCode('  0_506344_AbC123xyz\n')).toBe('0_506344_AbC123xyz');
+    expect(extractAuthCode('https://catcher.example.com/?code=0_506344_AbC123xyz&state=1')).toBe('0_506344_AbC123xyz');
+    expect(extractAuthCode('https://x.test/cb?foo=1&code=0%5F506344%5FAbC#frag')).toBe('0_506344_AbC');
+  });
+
+  it('rejects empty input and anything that is not code-shaped', () => {
+    expect(extractAuthCode('')).toBeNull();
+    expect(extractAuthCode('   ')).toBeNull();
+    expect(extractAuthCode('hello world')).toBeNull();
+    expect(extractAuthCode('https://x.test/cb?error=denied')).toBeNull();
+    expect(extractAuthCode('<script>alert(1)</script>')).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getDarazConnectUrl, getDarazStatus } from '../../api/daraz';
+import { exchangeDarazCode, getDarazConnectUrl, getDarazStatus } from '../../api/daraz';
 import { getErrorMessage } from '../../utils/errors';
 
 const POLL_MS = 3000;
@@ -10,12 +10,14 @@ const GIVE_UP_MS = 5 * 60 * 1000;
  * Daraz connection status plus a `connect()` that opens Daraz's consent page in a NEW tab.
  * Navigating the current tab fails inside embedded previews (Daraz sends X-Frame-Options: DENY),
  * so the tab that runs the Launcher stays put and polls until the other tab finishes the approval.
+ * `finishWithCode()` is the manual route for when Daraz redirects somewhere other than the Launcher.
  */
 export function useDarazConnection() {
   const [connecting, setConnecting] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [authUrl, setAuthUrl] = useState('');
   const [connectError, setConnectError] = useState('');
+  const [finishing, setFinishing] = useState(false);
 
   const query = useQuery({
     queryKey: ['daraz', 'status'],
@@ -54,6 +56,21 @@ export function useDarazConnection() {
     }
   }
 
+  async function finishWithCode(input: string) {
+    setFinishing(true);
+    setConnectError('');
+    try {
+      await exchangeDarazCode(input);
+      setAuthUrl('');
+      setWaiting(false);
+      await query.refetch();
+    } catch (err) {
+      setConnectError(getErrorMessage(err, 'Could not connect with that code'));
+    } finally {
+      setFinishing(false);
+    }
+  }
+
   return {
     status: query.data,
     statusError: query.error,
@@ -64,6 +81,8 @@ export function useDarazConnection() {
     waiting,
     authUrl,
     connectError,
+    finishing,
     connect,
+    finishWithCode,
   };
 }

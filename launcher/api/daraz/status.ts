@@ -9,6 +9,8 @@ export default route('GET', async (req, res) => {
   res.status(200).json({
     ok: true,
     configured,
+    // Not a secret; shown so a "redirect uri does not match" error is easy to compare with the Daraz console.
+    redirectUri: process.env.DARAZ_REDIRECT_URI || null,
     connected: Boolean(conn),
     account: conn?.account || null,
     country: conn?.country || null,

@@ -326,7 +326,7 @@ export default function Products() {
                   </div>
                 </td>
                 <td data-label="Category">{product.category}</td>
-                <td data-label="Price">${product.price.toFixed(2)}</td>
+                <td data-label="Price">Rs {product.price.toLocaleString()}</td>
                 <td data-label="Stock">
                   <input
                     className="input qty-input"

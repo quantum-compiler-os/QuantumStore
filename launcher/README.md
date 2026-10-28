@@ -17,9 +17,11 @@ On your own computer there is no login screen: with `LAUNCHER_AUTO_LOGIN_EMAIL` 
 
 ## Connect Daraz (once)
 
-1. In the Daraz Open Platform app console, add `DARAZ_REDIRECT_URI` (`http://127.0.0.1:5174/launcher-api/daraz/callback` locally) as a callback URL.
-2. Put `DARAZ_APP_KEY`, `DARAZ_APP_SECRET`, `DARAZ_REDIRECT_URI` and `MONGODB_URI` in `launcher/.env`.
-3. **Settings → Connect Daraz**, approve access with the seller account. Tokens are stored in the `launcher_daraz` collection and refreshed automatically.
+1. Put `DARAZ_APP_KEY`, `DARAZ_APP_SECRET`, `DARAZ_REDIRECT_URI` and `MONGODB_URI` in `launcher/.env`. `DARAZ_REDIRECT_URI` must equal the callback URL registered in your Daraz app (Daraz answers "Redirect uri does not match the callback url of the APP" otherwise). The Settings page shows the value the Launcher is sending.
+2. **Settings → Connect Daraz** (or the button on **Publish**). Daraz opens in a new tab; approve access with the seller account.
+3. If the registered callback is the Launcher's own (`/launcher-api/daraz/callback`), the Launcher finishes by itself. If it is something else (for example a request-catcher page), Daraz sends you there with `?code=…` in the address: copy that address (or just the code) and paste it into **Finish connecting**. The code is single-use and expires after 30 minutes.
+
+Tokens are stored in the `launcher_daraz` collection and refreshed automatically.
 
 ## Publish a product
 
@@ -43,7 +45,7 @@ Notes:
 | `src/` | React app (the admin pages moved here from the storefront) |
 | `src/pages/admin/Publish.tsx` | The publish form |
 | `src/features/products/` | Product form fields + payload builder shared by Publish and Edit |
-| `api/daraz/*` | Serverless endpoints: connect, callback, status, categories, attributes, listings, publish |
+| `api/daraz/*` | Serverless endpoints: connect, callback, exchange, status, categories, attributes, listings, publish |
 | `api/_lib/darazCore.ts` | Pure helpers: request signing, XML builders, image URL rewrite (unit-tested) |
 | `api/_lib/daraz.ts` | Daraz HTTP client, token refresh |
 | `tests/` | `npm test` |

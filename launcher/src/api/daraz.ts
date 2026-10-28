@@ -11,6 +11,7 @@ launcherApi.interceptors.request.use((config) => {
 
 export type DarazStatus = {
   configured: boolean;
+  redirectUri: string | null;
   connected: boolean;
   account: string | null;
   country: string | null;
@@ -55,6 +56,12 @@ export async function getDarazStatus() {
 export async function getDarazConnectUrl() {
   const { data } = await launcherApi.get<{ url: string }>('/daraz/connect');
   return data.url;
+}
+
+/** Finish connecting by hand: `input` is the code, or the whole address Daraz redirected to. */
+export async function exchangeDarazCode(input: string) {
+  const { data } = await launcherApi.post<{ account: string }>('/daraz/exchange', { code: input });
+  return data;
 }
 
 export async function disconnectDaraz() {

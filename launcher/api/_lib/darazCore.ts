@@ -52,6 +52,18 @@ export const AUTO_ATTRIBUTES = new Set([
   'package_content',
 ]);
 
+/**
+ * Pulls the authorization code out of whatever the seller pasted: the bare code, or the full
+ * address Daraz redirected to (`…?code=…&state=…`). Returns null when nothing usable is found.
+ */
+export function extractAuthCode(input: string): string | null {
+  const text = String(input || '').trim();
+  if (!text) return null;
+  const fromQuery = /[?&]code=([^&#\s]+)/.exec(text)?.[1];
+  const candidate = fromQuery ? decodeURIComponent(fromQuery) : text;
+  return /^[\w.\-~]{6,200}$/.test(candidate) ? candidate : null;
+}
+
 export function signRequest(apiPath: string, params: Record<string, string>, secret: string) {
   const base = Object.keys(params)
     .sort()

@@ -126,7 +126,7 @@ export default function ProductFormFields({ form, setForm, categories, onError, 
           <input className="input" value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
         </label>
         <label>
-          Price
+          Price (Rs)
           <input
             className="input"
             type="number"

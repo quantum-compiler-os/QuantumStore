@@ -11,6 +11,7 @@ import {
 } from '../../api/daraz';
 import type { Product } from '../../api/types';
 import DarazAuthPrompt from '../../features/daraz/DarazAuthPrompt';
+import { addCommission, commissionFor, filterLeaves, groupOf, groupsFromLeaves } from '../../features/daraz/categoryGroups';
 import { useDarazConnection } from '../../features/daraz/useDarazConnection';
 import ProductFormFields from '../../features/products/ProductFormFields';
 import {
@@ -21,7 +22,6 @@ import {
 } from '../../features/products/productForm';
 import { queryKeys } from '../../hooks/queryKeys';
 import { useProductCategoryNames } from '../../hooks/useProducts';
-import { useSettings } from '../../hooks/useSettings';
 import { getErrorMessage } from '../../utils/errors';
 
 const DEFAULTS_KEY = 'ql_daraz_defaults';
@@ -125,6 +125,10 @@ export default function Publish() {
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [categorySearch, setCategorySearch] = useState('');
+  const [group, setGroup] = useState(() => {
+    const saved = loadDefaults().categoryLabel;
+    return saved ? groupOf(saved) : '';
+  });
   const [showOptional, setShowOptional] = useState(false);
   const [storeStep, setStoreStep] = useState<StepState>({ status: 'idle' });
   const [darazStep, setDarazStep] = useState<StepState>({ status: 'idle' });
@@ -144,14 +148,11 @@ export default function Publish() {
     waiting,
     authUrl,
     connectError,
+    finishing,
     connect: connectDaraz,
+    finishWithCode,
   } = useDarazConnection();
   const darazReady = Boolean(status?.configured && status.connected);
-  const { data: settings } = useSettings();
-  // Store prices are in the base currency; Daraz wants rupees.
-  const baseCurrency = String(settings?.baseCurrency || 'USD');
-  const pkrRate = baseCurrency === 'PKR' ? 1 : settings?.currencies?.find((c) => c.code === 'PKR')?.rate || 1;
-  const convertedPrice = form.price ? String(Math.round(Number(form.price) * pkrRate * 100) / 100) : '';
   const darazOn = toDaraz && darazReady;
 
   const { data: leaves } = useQuery({
@@ -168,11 +169,17 @@ export default function Publish() {
     retry: false,
   });
 
-  const matches = useMemo(() => {
-    const q = categorySearch.trim().toLowerCase();
-    if (!q || !leaves) return [];
-    return leaves.filter((l) => l.path.toLowerCase().includes(q)).slice(0, 40);
-  }, [leaves, categorySearch]);
+  const groups = useMemo(() => groupsFromLeaves(leaves || []), [leaves]);
+  const matches = useMemo(() => filterLeaves(leaves || [], group, categorySearch), [leaves, group, categorySearch]);
+  const selectedCommission = daraz.categoryLabel ? commissionFor(groupOf(daraz.categoryLabel)) : null;
+  // The store price is already in rupees; Daraz gets it with the category's commission added on top.
+  const autoPrice = form.price ? String(addCommission(Number(form.price), selectedCommission)) : '';
+  const priceNote =
+    !form.price || daraz.categoryId === null
+      ? 'Pick a category to add its Daraz commission.'
+      : selectedCommission === null
+        ? 'No commission known for this category, so the store price is used as entered.'
+        : `Rs ${Number(form.price).toLocaleString()} + ${selectedCommission.toFixed(2)}% commission`;
 
   const showResult = storeStep.status !== 'idle' || darazStep.status !== 'idle';
   const canRetryDaraz = darazStep.status === 'failed' && !busy;
@@ -216,7 +223,7 @@ export default function Publish() {
     if (toDaraz && !darazReady) return 'Daraz is not connected — press Connect Daraz above, or untick Daraz';
     if (darazOn) {
       if (daraz.categoryId === null) return 'Pick a Daraz category';
-      if (!(Number(daraz.price || convertedPrice) > 0)) return 'Enter a price for Daraz';
+      if (!(Number(daraz.price || autoPrice) > 0)) return 'Enter a price for Daraz';
       const quantity = daraz.quantity || form.stock;
       if (quantity === '' || !Number.isInteger(Number(quantity))) {
         return 'Enter a stock quantity (it is required by Daraz)';
@@ -245,7 +252,7 @@ export default function Publish() {
         brand: form.brand,
         sellerSku: daraz.sellerSku.trim() || autoSku,
         quantity: Number(daraz.quantity || form.stock),
-        price: Number(daraz.price || convertedPrice),
+        price: Number(daraz.price || autoPrice),
         specialPrice: daraz.specialPrice ? Number(daraz.specialPrice) : null,
         images: form.images.map((i) => i.url),
         specs: parseSpecs(form.specsText),
@@ -365,7 +372,15 @@ export default function Publish() {
             </div>
           )}
           {toDaraz && !darazReady && (
-            <DarazAuthPrompt authUrl={authUrl} waiting={waiting} connectError={connectError} />
+            <DarazAuthPrompt
+              authUrl={authUrl}
+              waiting={waiting}
+              connectError={connectError}
+              finishing={finishing}
+              redirectUri={status?.redirectUri}
+              showPaste={Boolean(status?.configured)}
+              onFinish={finishWithCode}
+            />
           )}
 
           {darazOn && (
@@ -376,17 +391,44 @@ export default function Publish() {
                 asked here, and the package and category are remembered for next time.
               </p>
 
-              <label>
-                Daraz category *
-                <input
-                  className="input"
-                  placeholder={daraz.categoryLabel || 'Search, e.g. headphones'}
-                  value={categorySearch}
-                  onChange={(e) => setCategorySearch(e.target.value)}
-                />
-              </label>
+              <div className="form-grid">
+                <label>
+                  Daraz category group *
+                  <select
+                    className="input"
+                    value={group}
+                    onChange={(e) => {
+                      setGroup(e.target.value);
+                      setCategorySearch('');
+                    }}
+                  >
+                    <option value="">{leaves ? 'All groups' : 'Loading Daraz categories…'}</option>
+                    {groups.map((g) => {
+                      const commission = commissionFor(g);
+                      return (
+                        <option key={g} value={g}>
+                          {g}
+                          {commission !== null ? ` — ${commission.toFixed(2)}% commission` : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+                <label>
+                  Daraz category * (search inside the group)
+                  <input
+                    className="input"
+                    placeholder={daraz.categoryLabel || 'e.g. earbuds'}
+                    value={categorySearch}
+                    onChange={(e) => setCategorySearch(e.target.value)}
+                  />
+                </label>
+              </div>
               {daraz.categoryId !== null && (
-                <p className="muted">Selected: {daraz.categoryLabel || daraz.categoryId}</p>
+                <p className="muted">
+                  Selected: {daraz.categoryLabel || daraz.categoryId}
+                  {selectedCommission !== null && ` · Daraz commission ${selectedCommission.toFixed(2)}%`}
+                </p>
               )}
               {matches.length > 0 && (
                 <select
@@ -396,6 +438,7 @@ export default function Publish() {
                     const leaf = matches.find((l) => String(l.id) === e.target.value);
                     if (!leaf) return;
                     setDaraz((prev) => ({ ...prev, categoryId: leaf.id, categoryLabel: leaf.path, attributes: {} }));
+                    setGroup(groupOf(leaf.path));
                     setCategorySearch('');
                   }}
                 >
@@ -406,16 +449,19 @@ export default function Publish() {
                   ))}
                 </select>
               )}
+              {leaves && group && matches.length === 0 && (
+                <p className="muted">No category in this group matches that search.</p>
+              )}
 
               <div className="form-grid">
                 <label>
-                  Daraz price (Rs){baseCurrency !== 'PKR' && pkrRate !== 1 ? ` — 1 ${baseCurrency} = Rs ${pkrRate}` : ''}
+                  Daraz price (Rs) — {priceNote}
                   <input
                     className="input"
                     type="number"
                     min="0"
                     step="0.01"
-                    placeholder={convertedPrice || 'Converted from the price'}
+                    placeholder={autoPrice || 'Store price + commission'}
                     value={daraz.price}
                     onChange={(e) => setDarazField('price', e.target.value)}
                   />

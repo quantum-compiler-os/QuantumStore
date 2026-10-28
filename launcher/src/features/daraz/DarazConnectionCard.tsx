@@ -18,8 +18,18 @@ export default function DarazConnectionCard() {
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
-  const { status, statusError, statusLoading, connecting, waiting, authUrl, connectError, connect } =
-    useDarazConnection();
+  const {
+    status,
+    statusError,
+    statusLoading,
+    connecting,
+    waiting,
+    authUrl,
+    connectError,
+    finishing,
+    connect,
+    finishWithCode,
+  } = useDarazConnection();
 
   // Daraz sends the browser back here as /settings?daraz=connected|error&reason=…
   useEffect(() => {
@@ -88,7 +98,15 @@ export default function DarazConnectionCard() {
           </div>
         </>
       )}
-      <DarazAuthPrompt authUrl={authUrl} waiting={waiting} connectError={connectError} />
+      <DarazAuthPrompt
+        authUrl={authUrl}
+        waiting={waiting}
+        connectError={connectError}
+        finishing={finishing}
+        redirectUri={status?.redirectUri}
+        showPaste={Boolean(status?.configured && !status.connected)}
+        onFinish={finishWithCode}
+      />
     </div>
   );
 }

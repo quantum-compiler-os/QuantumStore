@@ -12,9 +12,15 @@ function launcherApi() {
   return {
     name: 'launcher-api',
     configureServer(server) {
+      // Vite restarts in the same process when .env changes, so values we loaded earlier must be
+      // refreshed; only variables that came from the real environment are left alone.
       const env = loadEnv(server.config.mode, process.cwd(), '');
+      const loaded = (globalThis.__launcherEnvKeys ??= new Set());
       for (const [key, value] of Object.entries(env)) {
-        if (process.env[key] === undefined) process.env[key] = value;
+        if (process.env[key] === undefined || loaded.has(key)) {
+          process.env[key] = value;
+          loaded.add(key);
+        }
       }
 
       server.middlewares.use(async (req, res, next) => {
