@@ -1,12 +1,12 @@
 # QuantumStore
 
-MERN ecommerce for **Quantum Logics Limited** — production-oriented storefront + admin panel.
+MERN ecommerce for **Quantum Logics Limited** — production-oriented storefront, plus the **Launcher**: a separate staff site that runs the admin and publishes products to Daraz and QuantumStore at once.
 
 ## Stack
 
 - **MongoDB** — Atlas (or any durable URI) by default; `USE_MEMORY_DB=true` for local demo only
 - **Express 5 + TypeScript** — layered API (`routes` → `controllers` → `services` → `models`), Vercel serverless-ready
-- **React 19 (Vite) + TypeScript** — storefront + admin, TanStack Query, internal UI kit
+- **React 19 (Vite) + TypeScript** — customer storefront (`frontend/`) and staff Launcher (`launcher/`), TanStack Query
 - **Stripe** — card checkout; **webhook is the source of truth** for payment status
 - **Resend or SMTP** — transactional email
 - **Cloudinary** — product images (required in production / Vercel)
@@ -23,19 +23,24 @@ npm run dev
 ```
 
 - Storefront: http://localhost:5173  
-- Admin: sign in at http://localhost:5173/login — admin/staff accounts are redirected to `/admin` automatically  
+- Launcher (admin + publishing): http://localhost:5174 — `npm run dev:launcher`, or everything with `npm run dev:all`  
 - API health: http://localhost:5000/api/health  
 
-Admin/staff sign in through the normal login form; access to `/admin` is granted purely by the account's `role` in the database (never by a client-supplied value). Provision the initial admin with `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `.env` plus `npm run create-admin` (see `.env.example`).
+The storefront has no admin UI. Staff sign in at the Launcher with the same API credentials; access is granted purely by the account's `role` and the owner email in the database (enforced by the API on every call, never by a client-supplied value). Provision the initial admin with `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `.env` plus `npm run create-admin` (see `.env.example`). The Launcher's origin must be listed in the API's `CORS_ORIGINS`.
+
+See [launcher/README.md](launcher/README.md) for connecting Daraz and publishing.
 
 > Production **must not** use `USE_MEMORY_DB`. Deploy on **Vercel** (API + storefront) — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Scripts
 
 ```bash
-npm run dev          # backend + frontend
+npm run dev          # backend + storefront
+npm run dev:all      # backend + storefront + launcher
 npm test             # backend Vitest
-npm run build        # frontend production build
+npm run test:launcher  # launcher Vitest (Daraz signing, XML, OAuth state)
+npm run build        # storefront production build
+npm run build:launcher # launcher production build
 npm run test:e2e     # Playwright
 npm run seed         # reseed database
 ```
@@ -58,7 +63,8 @@ GitHub Actions runs typecheck (soft), Vitest, frontend build, and Playwright on 
 
 ```
 QuantumStore/
-├── frontend/           React storefront + admin (submodule)
+├── frontend/           React storefront (submodule)
+├── launcher/           Staff site: admin + publish to Daraz & QuantumStore
 ├── backend/            Express API (submodule)
 ├── e2e/                Playwright specs
 ├── docs/DEPLOYMENT.md  Hosting guide (Atlas, Stripe, Cloudinary)

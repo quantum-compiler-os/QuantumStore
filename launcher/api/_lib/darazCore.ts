@@ -1,0 +1,199 @@
+/**
+ * Pure helpers for the Daraz Open Platform (Lazada-family) API. No network, no env, so they
+ * are unit-tested in tests/darazCore.test.ts. Contract notes (verify against open.daraz.com
+ * if Daraz rejects a call): requests are signed with HMAC-SHA256 over
+ * `<apiPath><key1><value1><key2><value2>…` (keys sorted ascending, apiPath without /rest),
+ * rendered as uppercase hex; product/image calls take their body as an XML `payload` field.
+ */
+import { createHmac } from 'node:crypto';
+
+export type DarazAttribute = {
+  name: string;
+  label: string;
+  mandatory: boolean;
+  inputType: string;
+  /** `sku` attributes (colour, size…) live inside <Sku>; everything else inside <Attributes>. */
+  attributeType: 'normal' | 'sku';
+  options: string[];
+};
+
+export type DarazCategoryLeaf = { id: number; name: string; path: string };
+
+export type DarazProductInput = {
+  categoryId: number;
+  name: string;
+  description: string;
+  shortDescription?: string;
+  brand: string;
+  sellerSku: string;
+  quantity: number;
+  price: number;
+  specialPrice?: number | null;
+  images: string[];
+  package: { weight: number; length: number; width: number; height: number; content: string };
+  /** Extra category attributes the seller filled in, keyed by Daraz attribute name. */
+  attributes: Record<string, string>;
+};
+
+/** Attributes the launcher fills from the core form, so they are never asked for twice. */
+export const AUTO_ATTRIBUTES = new Set([
+  'name',
+  'description',
+  'short_description',
+  'brand',
+  'price',
+  'special_price',
+  'quantity',
+  'SellerSku',
+  'package_weight',
+  'package_length',
+  'package_width',
+  'package_height',
+  'package_content',
+]);
+
+export function signRequest(apiPath: string, params: Record<string, string>, secret: string) {
+  const base = Object.keys(params)
+    .sort()
+    .reduce((acc, key) => acc + key + params[key], apiPath);
+  return createHmac('sha256', secret).update(base, 'utf8').digest('hex').toUpperCase();
+}
+
+export function xmlEscape(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/** Element names come from Daraz attribute names; refuse anything that is not a plain tag name. */
+function tag(name: string, value: string) {
+  if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) throw new Error(`Invalid Daraz attribute name: ${name}`);
+  return `<${name}>${xmlEscape(value)}</${name}>`;
+}
+
+function htmlTag(name: string, html: string) {
+  return `<${name}><![CDATA[${html.replace(/\]\]>/g, ']]]]><![CDATA[>')}]]></${name}>`;
+}
+
+function imagesXml(urls: string[]) {
+  return `<Images>${urls.map((u) => `<Image>${xmlEscape(u)}</Image>`).join('')}</Images>`;
+}
+
+function htmlEscape(value: string) {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+export function plainTextToHtml(text: string) {
+  return htmlEscape(text).replace(/\r?\n/g, '<br/>');
+}
+
+export function specsToHtml(specs: Array<{ key: string; value: string }>) {
+  if (!specs.length) return '';
+  const items = specs.map((s) => `<li>${htmlEscape(s.key)}: ${htmlEscape(s.value)}</li>`).join('');
+  return `<ul>${items}</ul>`;
+}
+
+export function buildProductXml(input: DarazProductInput, meta: DarazAttribute[] = []) {
+  const skuNames = new Set(meta.filter((a) => a.attributeType === 'sku').map((a) => a.name));
+  const productAttrs: string[] = [
+    tag('name', input.name),
+    htmlTag('description', plainTextToHtml(input.description)),
+    htmlTag('short_description', input.shortDescription || plainTextToHtml(input.description.slice(0, 500))),
+    tag('brand', input.brand || 'No Brand'),
+  ];
+  const skuAttrs: string[] = [];
+
+  for (const [name, value] of Object.entries(input.attributes)) {
+    if (!value || AUTO_ATTRIBUTES.has(name)) continue;
+    (skuNames.has(name) ? skuAttrs : productAttrs).push(tag(name, value));
+  }
+
+  const pkg = input.package;
+  const sku = [
+    tag('SellerSku', input.sellerSku),
+    ...skuAttrs,
+    tag('quantity', String(input.quantity)),
+    tag('price', input.price.toFixed(2)),
+    ...(input.specialPrice != null && input.specialPrice > 0 && input.specialPrice < input.price
+      ? [tag('special_price', input.specialPrice.toFixed(2))]
+      : []),
+    tag('package_weight', String(pkg.weight)),
+    tag('package_length', String(pkg.length)),
+    tag('package_width', String(pkg.width)),
+    tag('package_height', String(pkg.height)),
+    tag('package_content', pkg.content),
+    imagesXml(input.images),
+  ].join('');
+
+  return (
+    '<?xml version="1.0" encoding="UTF-8" ?>' +
+    `<Request><Product><PrimaryCategory>${input.categoryId}</PrimaryCategory>` +
+    `${imagesXml(input.images)}<Attributes>${productAttrs.join('')}</Attributes>` +
+    `<Skus><Sku>${sku}</Sku></Skus></Product></Request>`
+  );
+}
+
+export function buildImageMigrateXml(url: string) {
+  return `<?xml version="1.0" encoding="UTF-8" ?><Request><Image><Url>${xmlEscape(url)}</Url></Image></Request>`;
+}
+
+/**
+ * Daraz only accepts JPEG/PNG product photos; the storefront serves Cloudinary WebP.
+ * Ask Cloudinary for a JPEG rendition by inserting a transformation after `/upload/`.
+ */
+export function cloudinaryToJpeg(url: string) {
+  if (!/^https?:\/\/res\.cloudinary\.com\//.test(url) || !url.includes('/upload/')) return url;
+  const converted = url.replace('/upload/', '/upload/f_jpg,q_90/');
+  return converted.replace(/\.webp(\?.*)?$/i, '.jpg$1');
+}
+
+type RawCategory = { category_id: number; name: string; leaf?: boolean; children?: RawCategory[] };
+
+export function flattenCategoryTree(tree: RawCategory[], trail: string[] = []): DarazCategoryLeaf[] {
+  const out: DarazCategoryLeaf[] = [];
+  for (const node of tree || []) {
+    const path = [...trail, node.name];
+    if (node.leaf || !node.children?.length) {
+      out.push({ id: Number(node.category_id), name: node.name, path: path.join(' › ') });
+    } else {
+      out.push(...flattenCategoryTree(node.children, path));
+    }
+  }
+  return out;
+}
+
+type RawAttribute = {
+  name: string;
+  label?: string;
+  input_type?: string;
+  is_mandatory?: number | boolean | string;
+  attribute_type?: string;
+  options?: Array<{ name?: string; en_name?: string }>;
+};
+
+export function normalizeAttributes(raw: RawAttribute[]): DarazAttribute[] {
+  return (raw || []).map((a) => ({
+    name: a.name,
+    label: a.label || a.name,
+    mandatory: a.is_mandatory === true || Number(a.is_mandatory) === 1,
+    inputType: a.input_type || 'text',
+    attributeType: a.attribute_type === 'sku' ? 'sku' : 'normal',
+    options: (a.options || []).map((o) => o.name || o.en_name || '').filter(Boolean),
+  }));
+}
+
+/** A readable one-liner from Daraz's error envelope (top-level message plus per-field detail). */
+export function describeDarazError(body: {
+  code?: string;
+  message?: string;
+  detail?: Array<{ field?: string; message?: string }>;
+}) {
+  const detail = (body.detail || [])
+    .map((d) => [d.field, d.message].filter(Boolean).join(': '))
+    .filter(Boolean)
+    .join('; ');
+  return [body.message || `Daraz error ${body.code ?? ''}`.trim(), detail].filter(Boolean).join(' — ');
+}

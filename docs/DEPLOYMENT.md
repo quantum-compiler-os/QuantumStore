@@ -1,13 +1,14 @@
 # Deployment guide — QuantumStore on Vercel
 
-Production deployment for **two Vercel projects** (frontend SPA + Express API as serverless), with MongoDB Atlas, Cloudinary image storage, Stripe, and Resend.
+Production deployment for **three Vercel projects** (storefront SPA, Launcher staff site, Express API as serverless), with MongoDB Atlas, Cloudinary image storage, Stripe, and Resend.
 
 ## Architecture
 
 | Project | Root directory | Role |
 |---------|----------------|------|
 | **API** | `backend/` | Express app via `api/index.js` |
-| **Storefront** | `frontend/` | Vite React SPA + PWA |
+| **Storefront** | `frontend/` | Vite React SPA + PWA (customers only) |
+| **Launcher** | `launcher/` | Vite React SPA + serverless functions: admin, and publish to Daraz + QuantumStore |
 
 If `backend/` and `frontend/` are git submodules, create each Vercel project from its own repository (simplest; no submodule PAT required).
 
@@ -57,7 +58,7 @@ Environment variables (see `backend/.env.example`):
 | `MONGODB_URI` | Atlas URI |
 | `JWT_SECRET` | 32+ random characters |
 | `CLIENT_URL` | Frontend origin, e.g. `https://store.example.com` |
-| `CORS_ORIGINS` | Optional comma-separated allowlist |
+| `CORS_ORIGINS` | Comma-separated allowlist. **Required once the Launcher is deployed**: set it to the storefront origin *and* the Launcher origin (it replaces the `CLIENT_URL` default) |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Seed once via `npm run seed` against Atlas |
 | `STRIPE_*` | Secret, publishable, webhook secret |
 | `RESEND_API_KEY` or `SMTP_*` | Transactional email |
@@ -69,8 +70,8 @@ Environment variables (see `backend/.env.example`):
 `backend/vercel.json` rewrites all traffic to `/api` and schedules:
 
 - `GET /api/cron/low-stock-digest` daily at 08:00 UTC
-- `GET /api/cron/abandoned-carts` daily at 09:00 UTC — evaluates carts against the `abandonedCartHours` setting (Admin → Settings)
-- `GET /api/cron/audionic-sync` daily at 06:00 UTC — re-imports the Audionic catalog from audionic.co, priced Rs 100 below it (also on demand: Admin → Products → **Sync Audionic now**)
+- `GET /api/cron/abandoned-carts` daily at 09:00 UTC — evaluates carts against the `abandonedCartHours` setting (Launcher → Settings)
+- `GET /api/cron/audionic-sync` daily at 06:00 UTC — re-imports the Audionic catalog from audionic.co, priced Rs 100 below it (also on demand: Launcher → Products → **Sync Audionic now**)
 
 All require `Authorization: Bearer <CRON_SECRET>` (Vercel Cron sends this automatically when `CRON_SECRET` is set — ensure the secret matches; the routes also accept `x-cron-secret`).
 
@@ -100,6 +101,27 @@ VITE_API_URL=https://your-api.vercel.app
 
 Edit [`frontend/vercel.json`](../frontend/vercel.json) and replace `PLACEHOLDER_API_URL` with your real API origin for `/sitemap.xml` and `/robots.txt` rewrites.
 
+## 4b. Launcher Vercel project
+
+**Root:** `launcher`
+**Framework preset:** Vite
+**Build:** `npm run build`
+**Output:** `dist` (the `api/` folder deploys as serverless functions; `/launcher-api/*` is rewritten to `/api/*` by `launcher/vercel.json`)
+
+Environment (see `launcher/.env.example`):
+
+| Variable | Notes |
+|----------|--------|
+| `VITE_API_URL` | Backend origin, e.g. `https://your-api.vercel.app` |
+| `VITE_STORE_URL` | Storefront origin (the "View store" link) |
+| `QUANTUM_API_URL` | Backend origin; functions use it to verify the signed-in owner |
+| `MONGODB_URI` | Same Atlas URI as the API (stores the Daraz tokens and the product ↔ Daraz listing map) |
+| `DARAZ_APP_KEY` / `DARAZ_APP_SECRET` | From the Daraz Open Platform app console. **Server-only** — never prefix with `VITE_` |
+| `DARAZ_REDIRECT_URI` | `https://<launcher-host>/launcher-api/daraz/callback` — register the same URL in the Daraz app |
+| `DARAZ_API_HOST` | Optional, defaults to `https://api.daraz.pk` |
+
+After deploying: add the Launcher origin to the API's `CORS_ORIGINS`, open **Launcher → Settings → Connect Daraz**, and approve access with the seller account.
+
 ## 5. Stripe webhook
 
 Point Stripe to:
@@ -125,6 +147,7 @@ npm run dev
 ```
 
 - Storefront: http://localhost:5173  
+- Launcher: http://localhost:5174 (`npm run dev:launcher`; copy `launcher/.env.example` → `launcher/.env`)  
 - API: http://localhost:5000/api/health  
 
 Local hosts still use `src/server.js` (`app.listen` + optional daily `setInterval` digest). Vercel uses the serverless entry + Cron instead.
@@ -132,9 +155,10 @@ Local hosts still use `src/server.js` (`app.listen` + optional daily `setInterva
 ## 9. Verification checklist
 
 - [ ] `GET /api/health` returns `ok`
-- [ ] Admin login works
+- [ ] Launcher login works and the storefront shows no admin entry point
+- [ ] Launcher → Settings → Connect Daraz completes; Publish with both targets creates the product on QuantumStore and Daraz
 - [ ] Product image upload lands on Cloudinary and absolute URL renders
 - [ ] Stripe test checkout + webhook marks order paid
 - [ ] Both cron routes reject missing secret; succeed with Bearer token
-- [ ] CORS allows only the frontend origin
+- [ ] CORS allows only the storefront and Launcher origins
 - [ ] Playwright e2e green locally (`npm run test:e2e`)
