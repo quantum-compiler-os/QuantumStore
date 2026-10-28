@@ -5,13 +5,13 @@ import api from '../../api/client';
 import {
   getDarazAttributes,
   getDarazCategories,
-  getDarazConnectUrl,
-  getDarazStatus,
   publishToDaraz,
   type DarazAttribute,
   type DarazPublishResult,
 } from '../../api/daraz';
 import type { Product } from '../../api/types';
+import DarazAuthPrompt from '../../features/daraz/DarazAuthPrompt';
+import { useDarazConnection } from '../../features/daraz/useDarazConnection';
 import ProductFormFields from '../../features/products/ProductFormFields';
 import {
   buildProductPayload,
@@ -136,12 +136,16 @@ export default function Publish() {
   const categories = categoryNames?.length ? categoryNames : ['Laptops'];
 
   const {
-    data: status,
-    error: statusError,
-    isLoading: statusLoading,
-    refetch: refetchStatus,
-  } = useQuery({ queryKey: ['daraz', 'status'], queryFn: getDarazStatus, retry: false });
-  const [connecting, setConnecting] = useState(false);
+    status,
+    statusError,
+    statusLoading,
+    refetchStatus,
+    connecting,
+    waiting,
+    authUrl,
+    connectError,
+    connect: connectDaraz,
+  } = useDarazConnection();
   const darazReady = Boolean(status?.configured && status.connected);
   const { data: settings } = useSettings();
   // Store prices are in the base currency; Daraz wants rupees.
@@ -178,16 +182,6 @@ export default function Publish() {
   const locked = busy || allDone;
   const autoSku = slugSku(form.name, skuSuffix.current);
   const visibleAttributes = (attributes || []).filter((a) => a.mandatory || showOptional);
-
-  async function connectDaraz() {
-    setConnecting(true);
-    try {
-      window.location.assign(await getDarazConnectUrl());
-    } catch (err) {
-      setError(getErrorMessage(err, 'Could not start the Daraz connection'));
-      setConnecting(false);
-    }
-  }
 
   function setDarazField<K extends keyof DarazForm>(key: K, value: DarazForm[K]) {
     setDaraz((prev) => ({ ...prev, [key]: value }));
@@ -348,7 +342,7 @@ export default function Publish() {
             </label>
           </div>
           {toDaraz && !darazReady && (
-            <div className="inline-actions" style={{ alignItems: 'center' }}>
+            <div className="admin-quick" style={{ alignItems: 'center' }}>
               <p className="muted" style={{ margin: 0 }}>
                 {statusLoading
                   ? 'Checking the Daraz connection…'
@@ -365,10 +359,13 @@ export default function Publish() {
               )}
               {!statusLoading && !statusError && status?.configured && (
                 <button type="button" className="btn btn-secondary" disabled={connecting} onClick={connectDaraz}>
-                  {connecting ? 'Opening Daraz…' : 'Connect Daraz'}
+                  {connecting ? 'Preparing…' : 'Connect Daraz'}
                 </button>
               )}
             </div>
+          )}
+          {toDaraz && !darazReady && (
+            <DarazAuthPrompt authUrl={authUrl} waiting={waiting} connectError={connectError} />
           )}
 
           {darazOn && (

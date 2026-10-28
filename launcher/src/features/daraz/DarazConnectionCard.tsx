@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { disconnectDaraz, getDarazConnectUrl, getDarazStatus } from '../../api/daraz';
+import { useQueryClient } from '@tanstack/react-query';
+import { disconnectDaraz } from '../../api/daraz';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
 import { getErrorMessage } from '../../utils/errors';
+import DarazAuthPrompt from './DarazAuthPrompt';
+import { useDarazConnection } from './useDarazConnection';
 
 function formatDate(value: string | null) {
   return value ? new Date(value).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—';
@@ -16,12 +18,8 @@ export default function DarazConnectionCard() {
   const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
-  const [working, setWorking] = useState(false);
-  const { data: status, isLoading, error } = useQuery({
-    queryKey: ['daraz', 'status'],
-    queryFn: getDarazStatus,
-    retry: false,
-  });
+  const { status, statusError, statusLoading, connecting, waiting, authUrl, connectError, connect } =
+    useDarazConnection();
 
   // Daraz sends the browser back here as /settings?daraz=connected|error&reason=…
   useEffect(() => {
@@ -32,16 +30,6 @@ export default function DarazConnectionCard() {
     queryClient.invalidateQueries({ queryKey: ['daraz'] });
     setParams({}, { replace: true });
   }, [params, setParams, toast, queryClient]);
-
-  async function connect() {
-    setWorking(true);
-    try {
-      window.location.assign(await getDarazConnectUrl());
-    } catch (err) {
-      toast.error(getErrorMessage(err, 'Could not start the Daraz connection'));
-      setWorking(false);
-    }
-  }
 
   async function disconnect() {
     const ok = await confirm('Publishing to Daraz stops until you connect again. Existing listings are untouched.', {
@@ -62,8 +50,8 @@ export default function DarazConnectionCard() {
   return (
     <div className="admin-form daraz-card">
       <h2>Daraz connection</h2>
-      {isLoading && <p className="muted">Checking…</p>}
-      {error && <p className="form-error">{getErrorMessage(error, 'Could not check the Daraz connection')}</p>}
+      {statusLoading && <p className="muted">Checking…</p>}
+      {statusError && <p className="form-error">{getErrorMessage(statusError, 'Could not check the Daraz connection')}</p>}
       {status && !status.configured && (
         <p className="muted">
           Not configured. Set DARAZ_APP_KEY, DARAZ_APP_SECRET and DARAZ_REDIRECT_URI in the Launcher environment, and
@@ -72,10 +60,10 @@ export default function DarazConnectionCard() {
       )}
       {status?.configured && !status.connected && (
         <>
-          <p className="muted">Not connected. You will be sent to Daraz to approve access for your seller account.</p>
+          <p className="muted">Not connected. Daraz opens in a new tab so you can approve access for your seller account.</p>
           <div className="admin-quick">
-            <button type="button" className="btn btn-primary" disabled={working} onClick={connect}>
-              {working ? 'Opening Daraz…' : 'Connect Daraz'}
+            <button type="button" className="btn btn-primary" disabled={connecting} onClick={connect}>
+              {connecting ? 'Preparing…' : 'Connect Daraz'}
             </button>
           </div>
         </>
@@ -91,7 +79,7 @@ export default function DarazConnectionCard() {
             {formatDate(status.refreshExpiresAt)}), reconnect.
           </p>
           <div className="admin-quick">
-            <button type="button" className="btn btn-secondary" disabled={working} onClick={connect}>
+            <button type="button" className="btn btn-secondary" disabled={connecting} onClick={connect}>
               Reconnect
             </button>
             <button type="button" className="btn btn-ghost" onClick={disconnect}>
@@ -100,6 +88,7 @@ export default function DarazConnectionCard() {
           </div>
         </>
       )}
+      <DarazAuthPrompt authUrl={authUrl} waiting={waiting} connectError={connectError} />
     </div>
   );
 }
