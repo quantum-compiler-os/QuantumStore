@@ -13,7 +13,7 @@ npm run dev              # http://127.0.0.1:5174 (backend must be running on :50
 
 `npm run dev` serves the `api/` functions under `/launcher-api/*` through a small Vite plugin, so `vercel dev` is not needed.
 
-Sign in with the owner account (`ADMIN_EMAIL`). The Launcher origin must be in the backend's `CORS_ORIGINS` in production; in dev the Vite proxy forwards `/api` to `:5000`, so no CORS setup is needed.
+On your own computer there is no login screen: with `LAUNCHER_AUTO_LOGIN_EMAIL` / `LAUNCHER_AUTO_LOGIN_PASSWORD` set in `launcher/.env` (the backend's `ADMIN_EMAIL` / `ADMIN_PASSWORD`), the Launcher signs in as the owner by itself. This only works for a browser on the same machine and is refused on Vercel, so a deployed Launcher always asks for the owner's email and password. Logging out shows the login page for the rest of that browser tab; a new tab signs in automatically again. The Launcher origin must be in the backend's `CORS_ORIGINS` in production; in dev the Vite proxy forwards `/api` to `:5000`, so no CORS setup is needed.
 
 ## Connect Daraz (once)
 
