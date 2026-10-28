@@ -170,6 +170,7 @@ export default function Publish() {
 
     // Daraz fetches images from the internet, so anything not on a public https address is uploaded again first.
     let images = form.images;
+    let imageProblem = '';
     try {
       const fixed = await ensurePublicImages(images, {
         download: async (url) => (await api.get<Blob>(url, { responseType: 'blob', baseURL: '' })).data,
@@ -187,11 +188,8 @@ export default function Publish() {
         setForm((prev) => ({ ...prev, images: fixed.images }));
       }
     } catch (err) {
-      if (darazOn) {
-        setDarazStep({ status: 'failed', message: getErrorMessage(err, 'Could not prepare the images') });
-        setBusy(false);
-        return;
-      }
+      // QuantumStore still gets the product; only Daraz needs public images, so it is the one that reports this.
+      imageProblem = getErrorMessage(err, err instanceof Error ? err.message : 'Could not prepare the images');
     }
 
     let productId = createdProduct?._id;
@@ -220,8 +218,13 @@ export default function Publish() {
       setStoreStep({ status: 'skipped' });
     }
 
-    if (darazOn) await runDaraz(productId, images.map((i) => i.url));
-    else setDarazStep({ status: 'skipped' });
+    if (darazOn && imageProblem) {
+      setDarazStep({ status: 'failed', message: imageProblem });
+    } else if (darazOn) {
+      await runDaraz(productId, images.map((i) => i.url));
+    } else {
+      setDarazStep({ status: 'skipped' });
+    }
     setBusy(false);
   }
 
