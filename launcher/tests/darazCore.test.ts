@@ -6,6 +6,7 @@ import {
   resolveBrand,
   buildImageMigrateXml,
   buildProductXml,
+  buildSetImagesXml,
   describeDarazError,
   extractAuthCode,
   flattenCategoryTree,
@@ -167,5 +168,14 @@ describe('brands', () => {
     expect(isRejectedValue(message, 'Zia ul Quran')).toBe(true);
     expect(isRejectedValue(message, 'Samsung')).toBe(false);
     expect(isRejectedValue(message, '')).toBe(false);
+  });
+});
+
+describe('buildSetImagesXml', () => {
+  it('lists the new images under the SKU and escapes the values', () => {
+    const xml = buildSetImagesXml('BOOK-1', ['https://img.example/a.jpg', 'https://img.example/b.jpg?x=1&y=2']);
+    expect(xml).toContain('<Skus><Sku><SellerSku>BOOK-1</SellerSku><Images>');
+    expect(xml).toContain('<Image>https://img.example/a.jpg</Image>');
+    expect(xml).toContain('<Image>https://img.example/b.jpg?x=1&amp;y=2</Image>');
   });
 });

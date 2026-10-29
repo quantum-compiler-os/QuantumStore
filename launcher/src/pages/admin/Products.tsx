@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../api/client';
-import { getDarazListings } from '../../api/daraz';
+import { getDarazListings, updateDarazImages } from '../../api/daraz';
 import type { Product } from '../../api/types';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
@@ -97,9 +97,20 @@ export default function Products() {
     }
     try {
       await api.put(`/products/${editingId}`, buildProductPayload(form));
+      const darazItem = darazListings?.[editingId];
+      const images = form.images.map((image) => image.url);
       resetForm();
       await invalidate();
       toast.success('Product saved');
+      if (darazItem) {
+        // The Daraz listing is separate, so the images are sent there as well.
+        try {
+          await updateDarazImages(editingId, images);
+          toast.success('Images updated on Daraz');
+        } catch (err) {
+          toast.error(`Saved on QuantumStore, but Daraz images were not updated: ${getErrorMessage(err, 'Daraz refused the images')}`);
+        }
+      }
     } catch (err) {
       setError(getErrorMessage(err, 'Could not save product'));
     } finally {
@@ -261,8 +272,8 @@ export default function Products() {
           </div>
           {darazListings?.[editingId] && (
             <p className="muted">
-              This product is also listed on Daraz (item {darazListings[editingId].itemId}). Changes here do not
-              update the Daraz listing — edit it in Daraz Seller Center.
+              This product is also listed on Daraz (item {darazListings[editingId].itemId}). Saving sends the images to
+              Daraz as well; other changes (name, price, description) are not sent — edit those in Daraz Seller Center.
             </p>
           )}
         </form>

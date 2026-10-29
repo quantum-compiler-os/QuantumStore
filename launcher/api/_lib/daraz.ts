@@ -3,6 +3,7 @@ import { connectionCollection, type DarazConnection } from './db.js';
 import {
   buildImageMigrateXml,
   buildProductXml,
+  buildSetImagesXml,
   describeDarazError,
   flattenCategoryTree,
   normalizeAttributes,
@@ -188,7 +189,16 @@ export async function migrateImage(url: string, accessToken: string) {
   return hosted;
 }
 
-export type DarazCreateResult = { itemId: string; skuId: string; sellerSku: string };
+/** Replaces the images shown on an existing listing. Pass Daraz-hosted URLs (see migrateImage). */
+export async function setImages(sellerSku: string, hostedUrls: string[], accessToken: string) {
+  await call('/images/set', {
+    method: 'POST',
+    accessToken,
+    params: { payload: buildSetImagesXml(sellerSku, hostedUrls) },
+  });
+}
+
+export type DarazCreateResult ={ itemId: string; skuId: string; sellerSku: string };
 
 export async function createProduct(input: DarazProductInput, meta: DarazAttribute[], accessToken: string) {
   const body = await call<{ data?: { item_id?: number | string; sku_list?: Array<{ sku_id?: number | string }> } }>(

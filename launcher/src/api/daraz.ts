@@ -130,6 +130,12 @@ export async function getDarazListings(ids: string[]) {
   return data.listings;
 }
 
+/** Replaces the images on a product's existing Daraz listing. */
+export async function updateDarazImages(quantumProductId: string, images: string[]) {
+  const { data } = await launcherApi.post<{ count: number }>('/daraz/update-images', { quantumProductId, images });
+  return data;
+}
+
 export async function publishToDaraz(body: DarazPublishRequest) {
   const { data } = await launcherApi.post<DarazPublishResult & { ok: true }>('/daraz/publish', body);
   return data;

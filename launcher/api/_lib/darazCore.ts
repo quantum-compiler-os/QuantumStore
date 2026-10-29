@@ -205,7 +205,15 @@ export function buildImageMigrateXml(url: string) {
   return `<?xml version="1.0" encoding="UTF-8" ?><Request><Image><Url>${xmlEscape(url)}</Url></Image></Request>`;
 }
 
-type RawCategory = { category_id: number; name: string; leaf?: boolean; children?: RawCategory[] };
+/** Replaces the images of an existing item's SKU (Daraz "SetImages"). `urls` must already be Daraz-hosted. */
+export function buildSetImagesXml(sellerSku: string, urls: string[]) {
+  return (
+    '<?xml version="1.0" encoding="UTF-8" ?>' +
+    `<Request><Product><Skus><Sku>${tag('SellerSku', sellerSku)}${imagesXml(urls)}</Sku></Skus></Product></Request>`
+  );
+}
+
+type RawCategory ={ category_id: number; name: string; leaf?: boolean; children?: RawCategory[] };
 
 export function flattenCategoryTree(tree: RawCategory[], trail: string[] = []): DarazCategoryLeaf[] {
   const out: DarazCategoryLeaf[] = [];
