@@ -7,6 +7,12 @@ import DarazConnectionCard from '../../features/daraz/DarazConnectionCard';
 import { useToast } from '../../context/ToastContext';
 import { getErrorMessage } from '../../utils/errors';
 
+function pkrRateFrom(currencies: unknown): number | undefined {
+  const list = Array.isArray(currencies) ? (currencies as Array<{ code?: string; rate?: unknown }>) : [];
+  const rate = Number(list.find((c) => c?.code === 'PKR')?.rate);
+  return rate > 0 ? rate : undefined;
+}
+
 export default function Settings() {
   const { isAdmin } = useAuth();
   const toast = useToast();
@@ -20,16 +26,7 @@ export default function Settings() {
     loyaltyPointsPerDollar: 1,
     loyaltyRedemptionRate: 0.01,
     abandonedCartHours: 24,
-    baseCurrency: 'USD',
-    currenciesText: JSON.stringify(
-      [
-        { code: 'USD', symbol: '$', rate: 1 },
-        { code: 'PKR', symbol: 'Rs', rate: 278 },
-        { code: 'EUR', symbol: '€', rate: 0.92 },
-      ],
-      null,
-      2
-    ),
+    pkrRate: 278,
   });
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [staffForm, setStaffForm] = useState({ name: '', email: '', password: 'staff123' });
@@ -53,11 +50,7 @@ export default function Settings() {
           loyaltyPointsPerDollar: data.loyaltyPointsPerDollar ?? prev.loyaltyPointsPerDollar,
           loyaltyRedemptionRate: data.loyaltyRedemptionRate ?? prev.loyaltyRedemptionRate,
           abandonedCartHours: data.abandonedCartHours ?? prev.abandonedCartHours,
-          baseCurrency: data.baseCurrency ?? prev.baseCurrency,
-          currenciesText:
-            data.currencies != null
-              ? JSON.stringify(data.currencies, null, 2)
-              : prev.currenciesText,
+          pkrRate: pkrRateFrom(data.currencies) ?? prev.pkrRate,
         }));
       })
       .catch(() => setError('Could not load settings'));
@@ -72,14 +65,12 @@ export default function Settings() {
   async function saveSettings(e: FormEvent) {
     e.preventDefault();
     try {
-      let currencies;
-      try {
-        currencies = JSON.parse(form.currenciesText);
-      } catch {
-        setError('Currencies JSON is invalid');
+      const { pkrRate, ...rest } = form;
+      if (!(Number(pkrRate) > 0)) {
+        setError('PKR rate must be greater than 0');
         return;
       }
-      const { currenciesText: _currenciesText, ...rest } = form;
+      const currencies = [{ code: 'PKR', symbol: 'Rs', rate: Number(pkrRate) }];
       const { data } = await api.put('/settings', { ...rest, currencies });
       setForm((prev) => ({
         ...prev,
@@ -92,9 +83,7 @@ export default function Settings() {
         loyaltyPointsPerDollar: data.loyaltyPointsPerDollar ?? prev.loyaltyPointsPerDollar,
         loyaltyRedemptionRate: data.loyaltyRedemptionRate ?? prev.loyaltyRedemptionRate,
         abandonedCartHours: data.abandonedCartHours ?? prev.abandonedCartHours,
-        baseCurrency: data.baseCurrency ?? prev.baseCurrency,
-        currenciesText:
-          data.currencies != null ? JSON.stringify(data.currencies, null, 2) : prev.currenciesText,
+        pkrRate: pkrRateFrom(data.currencies) ?? prev.pkrRate,
       }));
       toast.success('Settings saved');
     } catch (err) {
@@ -202,23 +191,17 @@ export default function Settings() {
             />
           </label>
           <label>
-            Base currency
+            PKR rate (Rs per stored price unit)
             <input
               className="input"
-              value={form.baseCurrency || 'USD'}
-              onChange={(e) => setForm({ ...form, baseCurrency: e.target.value })}
+              type="number"
+              min="0"
+              step="any"
+              value={form.pkrRate}
+              onChange={(e) => setForm({ ...form, pkrRate: Number(e.target.value) })}
             />
           </label>
         </div>
-        <label>
-          Currencies (JSON)
-          <textarea
-            className="input"
-            rows={6}
-            value={form.currenciesText}
-            onChange={(e) => setForm({ ...form, currenciesText: e.target.value })}
-          />
-        </label>
         <label className="checkbox-row">
           <input
             type="checkbox"
