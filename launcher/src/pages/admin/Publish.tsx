@@ -10,7 +10,7 @@ import {
   type DarazPublishResult,
 } from '../../api/daraz';
 import type { Product } from '../../api/types';
-import { addCommission, commissionFor, groupOf } from '../../features/daraz/categoryGroups';
+import { commissionFor, groupOf } from '../../features/daraz/categoryGroups';
 import DarazAuthPrompt from '../../features/daraz/DarazAuthPrompt';
 import DarazPanel from '../../features/daraz/DarazPanel';
 import {
@@ -102,9 +102,9 @@ export default function Publish() {
     retry: false,
   });
 
-  // The store price is already in rupees; Daraz gets it with the category's commission added on top.
+  // The price is in rupees and goes to Daraz exactly as entered; the commission is only shown as information.
   const commission = daraz.categoryLabel ? commissionFor(groupOf(daraz.categoryLabel)) : null;
-  const autoPrice = form.price ? String(addCommission(Number(form.price), commission)) : '';
+  const autoPrice = form.price;
   const autoSku = slugSku(form.name, skuSuffix.current);
 
   const showResult = storeStep.status !== 'idle' || darazStep.status !== 'idle';
@@ -355,7 +355,6 @@ export default function Publish() {
                 productBrand={form.brand}
                 productDescription={form.description}
                 aiConfigured={Boolean(status?.aiConfigured)}
-                storePrice={form.price}
                 storeStock={form.stock}
                 commission={commission}
                 autoPrice={autoPrice}

@@ -98,6 +98,7 @@ export default route('POST', async (req, res) => {
     name: body.name.trim(),
     description: body.description.trim(),
     shortDescription: specsToHtml(body.specs || []) || undefined,
+    descriptionImage: hosted[0],
     brand,
     sellerSku: body.sellerSku.trim(),
     quantity: Number(body.quantity),

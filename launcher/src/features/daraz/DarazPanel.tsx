@@ -13,12 +13,11 @@ type Props = {
   productDescription: string;
   /** True when the server has a Groq key, so category suggestions are available. */
   aiConfigured: boolean;
-  /** The store price (already in rupees) and stock typed in the main form. */
-  storePrice: string;
+  /** The stock typed in the main form. */
   storeStock: string;
-  /** Commission (%) of the chosen category, or null when unknown. */
+  /** Commission (%) Daraz keeps in the chosen category, or null when unknown. Shown for information only. */
   commission: number | null;
-  /** Store price with the commission added: what Daraz gets unless a custom price is typed. */
+  /** The price entered above: what Daraz gets unless a custom price is typed. */
   autoPrice: string;
   autoSku: string;
   account: string | null | undefined;
@@ -40,7 +39,6 @@ export default function DarazPanel({
   productBrand,
   productDescription,
   aiConfigured,
-  storePrice,
   storeStock,
   commission,
   autoPrice,
@@ -59,7 +57,6 @@ export default function DarazPanel({
     setDaraz((prev) => ({ ...prev, [key]: value }));
   }
 
-  const store = Number(storePrice) || 0;
   const auto = Number(autoPrice) || 0;
   const custom = Number(daraz.price) || 0;
   const finalPrice = custom > 0 ? custom : auto;
@@ -140,32 +137,21 @@ export default function DarazPanel({
         </h3>
 
         <div className="price-breakdown" aria-live="polite">
-          <div className="price-line">
-            <span>Your price</span>
-            <strong>{store > 0 ? rs(store) : '—'}</strong>
-          </div>
-          {commission !== null && store > 0 ? (
-            <div className="price-line">
-              <span>+ {commission.toFixed(2)}% category commission</span>
-              <strong>{rs(Math.max(0, auto - store))}</strong>
-            </div>
-          ) : (
-            <div className="price-line">
-              <span className="muted">
-                {daraz.categoryId === null ? 'Pick a category to add its commission' : 'No commission known for this category'}
-              </span>
-            </div>
-          )}
           <div className="price-line price-line-total">
-            <span>{custom > 0 ? 'Daraz price (custom)' : 'Daraz price'}</span>
+            <span>{custom > 0 ? 'Daraz price (custom)' : 'Daraz price (same as yours)'}</span>
             <strong>{finalPrice > 0 ? rs(finalPrice) : '—'}</strong>
           </div>
+          {commission !== null && (
+            <div className="price-line">
+              <span className="muted">Daraz keeps {commission.toFixed(2)}% of each sale in this category. Not added to the price.</span>
+            </div>
+          )}
         </div>
 
         <div className="daraz-grid">
           <Field
             label="Custom Daraz price (Rs)"
-            hint={auto > 0 ? `Optional. Leave empty to use ${rs(auto)}.` : 'Optional. Defaults to your price plus commission.'}
+            hint={auto > 0 ? `Optional. Leave empty to use ${rs(auto)}.` : 'Optional. Defaults to your price.'}
           >
             <input
               className="input"

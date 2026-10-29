@@ -9,7 +9,7 @@ import {
   readListingAnswer,
   requiredAttributes,
 } from '../api/_lib/listingAi';
-import { applyPrepared, darazProblem, initialDaraz } from '../src/features/daraz/darazForm';
+import { applyPrepared, darazPrice, darazProblem, initialDaraz } from '../src/features/daraz/darazForm';
 
 // The fields from the real Daraz error: ISBN/ISSN, Age Group, English description, Name in English Language, English highlights.
 const meta = normalizeAttributes([
@@ -234,5 +234,17 @@ describe('the Publish form helpers', () => {
     expect(darazProblem(withCategory, '500', '3')).toBe('');
     expect(darazProblem(withCategory, '500', '')).toMatch(/stock quantity/);
     expect(darazProblem({ ...withCategory, height: '' }, '500', '3')).toMatch(/package height/);
+  });
+});
+
+describe('darazPrice', () => {
+  it('is exactly the price entered, whatever the category commission is', () => {
+    const book = { ...initialDaraz(), categoryId: 1, categoryLabel: 'Media, Music & Books › Books' };
+    expect(darazPrice(book, '8000')).toBe(8000);
+  });
+
+  it('lets a custom Daraz price win and ignores a bad price', () => {
+    expect(darazPrice({ ...initialDaraz(), price: '8500' }, '8000')).toBe(8500);
+    expect(darazPrice(initialDaraz(), '')).toBe(0);
   });
 });

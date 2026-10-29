@@ -78,12 +78,3 @@ export function filterLeaves(leaves: DarazCategoryLeaf[], group: string, query: 
   });
   return hits.slice(0, limit);
 }
-
-/**
- * The Daraz price for a store price: the category's commission added on top, to the nearest rupee
- * (Rs 155 with 16% commission → Rs 180). An unknown or missing commission leaves the price as entered.
- */
-export function addCommission(price: number, commissionPercent: number | null) {
-  if (!Number.isFinite(price) || price <= 0) return 0;
-  return Math.round(price * (1 + (commissionPercent ?? 0) / 100));
-}

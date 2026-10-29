@@ -24,6 +24,8 @@ export type DarazProductInput = {
   name: string;
   description: string;
   shortDescription?: string;
+  /** Daraz-hosted address of the cover image, shown at the top of the description. */
+  descriptionImage?: string;
   brand: string;
   sellerSku: string;
   quantity: number;
@@ -157,12 +159,20 @@ export function specsToHtml(specs: Array<{ key: string; value: string }>) {
   return `<ul>${items}</ul>`;
 }
 
+/** The description text, with the cover image above it when one is given. */
+function descriptionHtml(input: Pick<DarazProductInput, 'description' | 'descriptionImage'>) {
+  const image = input.descriptionImage
+    ? `<p><img src="${xmlEscape(input.descriptionImage)}" style="max-width:100%"/></p>`
+    : '';
+  return image + plainTextToHtml(input.description);
+}
+
 export function buildProductXml(input: DarazProductInput, meta: DarazAttribute[] = []) {
   const skuNames = new Set(meta.filter((a) => a.attributeType === 'sku').map((a) => a.name));
   const inputTypes = new Map(meta.map((a) => [a.name, a.inputType]));
   const productAttrs: string[] = [
     tag('name', input.name),
-    htmlTag('description', plainTextToHtml(input.description)),
+    htmlTag('description', descriptionHtml(input)),
     htmlTag('short_description', input.shortDescription || plainTextToHtml(input.description.slice(0, 500))),
     tag('brand', input.brand || 'No Brand'),
   ];

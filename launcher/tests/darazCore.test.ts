@@ -180,3 +180,29 @@ describe('buildSetImagesXml', () => {
     expect(xml).toContain('<Image>https://img.example/b.jpg?x=1&amp;y=2</Image>');
   });
 });
+
+describe('description cover image', () => {
+  const input: DarazProductInput = {
+    categoryId: 1,
+    name: 'Book',
+    description: 'A book about maths.',
+    brand: 'No Brand',
+    sellerSku: 'B-1',
+    quantity: 3,
+    price: 500,
+    images: ['https://img.example/a.jpg'],
+    package: { weight: 0.5, length: 24, width: 17, height: 2, content: 'Book' },
+    attributes: {},
+  };
+
+  it('puts the cover image above the description text', () => {
+    const xml = buildProductXml({ ...input, descriptionImage: 'https://img.example/a.jpg?x=1&y=2' });
+    expect(xml).toContain(
+      '<description><![CDATA[<p><img src="https://img.example/a.jpg?x=1&amp;y=2" style="max-width:100%"/></p>A book about maths.]]></description>',
+    );
+  });
+
+  it('leaves the description as it is without a cover image', () => {
+    expect(buildProductXml(input)).toContain('<description><![CDATA[A book about maths.]]></description>');
+  });
+});

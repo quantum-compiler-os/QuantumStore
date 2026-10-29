@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   DARAZ_LEVEL1_COMMISSION,
-  addCommission,
   commissionFor,
   filterLeaves,
   groupOf,
@@ -47,19 +46,5 @@ describe('group helpers', () => {
   it('shows nothing until there is a group or a query, and caps the list', () => {
     expect(filterLeaves(leaves, '', '')).toEqual([]);
     expect(filterLeaves(leaves, 'Mobiles & Tablets', '', 1)).toHaveLength(1);
-  });
-});
-
-describe('addCommission', () => {
-  it('adds the category commission on top, to the nearest rupee', () => {
-    expect(addCommission(155, 16)).toBe(180);
-    expect(addCommission(1800, 12.9)).toBe(2032);
-    expect(addCommission(1000, 0)).toBe(1000);
-  });
-
-  it('leaves the price alone when the commission is unknown, and ignores bad prices', () => {
-    expect(addCommission(155, null)).toBe(155);
-    expect(addCommission(0, 16)).toBe(0);
-    expect(addCommission(Number.NaN, 16)).toBe(0);
   });
 });
