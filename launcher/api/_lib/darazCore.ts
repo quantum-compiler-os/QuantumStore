@@ -152,16 +152,6 @@ export function buildImageMigrateXml(url: string) {
   return `<?xml version="1.0" encoding="UTF-8" ?><Request><Image><Url>${xmlEscape(url)}</Url></Image></Request>`;
 }
 
-/**
- * Daraz only accepts JPEG/PNG product photos; the storefront serves Cloudinary WebP.
- * Ask Cloudinary for a JPEG rendition by inserting a transformation after `/upload/`.
- */
-export function cloudinaryToJpeg(url: string) {
-  if (!/^https?:\/\/res\.cloudinary\.com\//.test(url) || !url.includes('/upload/')) return url;
-  const converted = url.replace('/upload/', '/upload/f_jpg,q_90/');
-  return converted.replace(/\.webp(\?.*)?$/i, '.jpg$1');
-}
-
 type RawCategory = { category_id: number; name: string; leaf?: boolean; children?: RawCategory[] };
 
 export function flattenCategoryTree(tree: RawCategory[], trail: string[] = []): DarazCategoryLeaf[] {

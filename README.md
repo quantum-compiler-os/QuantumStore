@@ -9,7 +9,7 @@ MERN ecommerce for **Quantum Logics Limited** — production-oriented storefront
 - **React 19 (Vite) + TypeScript** — customer storefront (`frontend/`) and staff Launcher (`launcher/`), TanStack Query
 - **Stripe** — card checkout; **webhook is the source of truth** for payment status
 - **Resend or SMTP** — transactional email
-- **Cloudinary** — product images (required in production / Vercel)
+- **Google Drive** — product images (required in production / Vercel)
 - **Vitest + Playwright** — API and end-to-end tests
 - **Vercel** — separate frontend + API projects (see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md))
 
@@ -50,7 +50,7 @@ npm run seed         # reseed database
 - Zod env validation at API startup; weak JWT / memory DB blocked in production
 - Authenticated/owned Stripe checkout sessions; client cannot mark orders paid
 - CORS allowlist, payment rate limits, structured logging (pino), optional Sentry
-- Image storage abstraction (`STORAGE_DRIVER=local|cloudinary`)
+- Image storage abstraction (`STORAGE_DRIVER=local|gdrive`)
 - Legal pages: `/privacy`, `/terms`, `/returns`
 
 ## CI
@@ -67,7 +67,7 @@ QuantumStore/
 ├── launcher/           Staff site: admin + publish to Daraz & QuantumStore
 ├── backend/            Express API (submodule)
 ├── e2e/                Playwright specs
-├── docs/DEPLOYMENT.md  Hosting guide (Atlas, Stripe, Cloudinary)
+├── docs/DEPLOYMENT.md  Hosting guide (Atlas, Stripe, Google Drive)
 ├── .github/workflows/  CI
 └── package.json
 ```

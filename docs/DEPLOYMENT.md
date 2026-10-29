@@ -1,6 +1,6 @@
 # Deployment guide — QuantumStore on Vercel
 
-Production deployment for **three Vercel projects** (storefront SPA, Launcher staff site, Express API as serverless), with MongoDB Atlas, Cloudinary image storage, Stripe, and Resend.
+Production deployment for **three Vercel projects** (storefront SPA, Launcher staff site, Express API as serverless), with MongoDB Atlas, Google Drive image storage, Stripe, and Resend.
 
 ## Architecture
 
@@ -18,7 +18,7 @@ Browser ──► Vercel Frontend (Vite)
                ▼
             Vercel Backend (Express serverless)
                ├── MongoDB Atlas
-               ├── Cloudinary (product images)
+               ├── Google Drive (product images)
                ├── Stripe Checkout + webhook
                └── Resend / SMTP
 ```
@@ -32,16 +32,31 @@ Browser ──► Vercel Frontend (Vite)
 
 ## 2. Image storage (required in production)
 
-Local `uploads/` does **not** work on Vercel. Set (values from the Cloudinary console dashboard):
+Local `uploads/` does **not** work on Vercel, so product images are stored in the owner's **Google Drive**. Each file is shared as "anyone with the link can view" and served from `lh3.googleusercontent.com` (full-size images are JPEG, which Daraz accepts).
 
-```env
-STORAGE_DRIVER=cloudinary
-CLOUDINARY_CLOUD_NAME=...
-CLOUDINARY_API_KEY=...
-CLOUDINARY_API_SECRET=...
-```
+One-time setup:
 
-Uploads land in the `quantumstore/products` folder and are served from `res.cloudinary.com`.
+1. [Google Cloud Console](https://console.cloud.google.com) → create a project → **APIs & Services → Library → Google Drive API → Enable**.
+2. **OAuth consent screen** → User type *External* → add the scope `.../auth/drive.file` → **Publish app** (status *In production*). A *Testing* app's refresh token expires after 7 days, which would silently break uploads.
+3. **Credentials → Create credentials → OAuth client ID → Application type: Desktop app.** Copy the client ID and secret.
+4. Put them in `backend/.env`:
+
+   ```env
+   GOOGLE_DRIVE_CLIENT_ID=...
+   GOOGLE_DRIVE_CLIENT_SECRET=...
+   ```
+
+5. Run `npm run drive:auth --prefix backend`, sign in with the Google account that should hold the images and allow access. It creates a "QuantumStore Products" folder and prints the rest:
+
+   ```env
+   STORAGE_DRIVER=gdrive
+   GOOGLE_DRIVE_REFRESH_TOKEN=...
+   GOOGLE_DRIVE_FOLDER_ID=...
+   ```
+
+6. Add all five values (`STORAGE_DRIVER` plus the four `GOOGLE_DRIVE_*`) to the backend's Vercel environment variables and **redeploy**.
+
+Google Drive is not a CDN: very high image traffic can be rate-limited by Google. That is fine for a small store; move to a real image host if traffic grows.
 
 ## 3. Backend (API) Vercel project
 
@@ -62,8 +77,8 @@ Environment variables (see `backend/.env.example`):
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Seed once via `npm run seed` against Atlas |
 | `STRIPE_*` | Secret, publishable, webhook secret |
 | `RESEND_API_KEY` or `SMTP_*` | Transactional email |
-| `STORAGE_DRIVER` | Must be `cloudinary` |
-| `CLOUDINARY_*` | Cloud name, API key, API secret |
+| `STORAGE_DRIVER` | Must be `gdrive` |
+| `GOOGLE_DRIVE_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` / `_FOLDER_ID` | See section 2 (`npm run drive:auth`) |
 | `CRON_SECRET` | Shared secret for Vercel Cron |
 | `SENTRY_DSN` | Optional |
 
@@ -160,7 +175,7 @@ Local hosts still use `src/server.js` (`app.listen` + optional daily `setInterva
 - [ ] `GET /api/health` returns `ok`
 - [ ] Launcher login works and the storefront shows no admin entry point
 - [ ] Launcher → Settings → Connect Daraz completes; Publish with both targets creates the product on QuantumStore and Daraz
-- [ ] Product image upload lands on Cloudinary and absolute URL renders
+- [ ] Product image upload lands in Google Drive and the `lh3.googleusercontent.com` URL renders
 - [ ] Stripe test checkout + webhook marks order paid
 - [ ] Both cron routes reject missing secret; succeed with Bearer token
 - [ ] CORS allows only the storefront and Launcher origins

@@ -31,7 +31,7 @@ The key stays on the server. Groq never receives the whole category tree: one ca
 
 ## Publish a product
 
-**Publish** has one form. Images upload to Cloudinary through the backend (`POST /api/uploads`). Tick **QuantumStore** and/or **Daraz**, pick a Daraz category, fill the package size, and press **Publish**.
+**Publish** has one form. Images upload to Google Drive through the backend (`POST /api/uploads`). Tick **QuantumStore** and/or **Daraz**, pick a Daraz category, fill the package size, and press **Publish**.
 
 1. The product is created on QuantumStore (`POST /api/products`).
 2. Daraz re-hosts the images, then the product is created there. The mapping (`launcher_listings`) records the Daraz item id.
@@ -41,7 +41,7 @@ If Daraz rejects the listing, the QuantumStore product stays and the button beco
 Notes:
 
 - Daraz prices are rupees. The default Daraz price is the store price converted with the PKR rate from Settings; override it in the Daraz panel.
-- Daraz needs publicly reachable `https` image URLs. With `STORAGE_DRIVER=local` (relative `/uploads/…` paths) the Daraz step will refuse; use Cloudinary or paste hosted URLs.
+- Daraz needs publicly reachable `https` image URLs. With `STORAGE_DRIVER=local` (relative `/uploads/…` paths) the Daraz step will refuse; use Google Drive or paste hosted URLs.
 - Later edits to price or stock on QuantumStore are not pushed to Daraz yet.
 
 ## Layout

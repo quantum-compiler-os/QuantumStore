@@ -3,7 +3,6 @@ import { signState, verifyState } from '../api/_lib/auth';
 import {
   buildImageMigrateXml,
   buildProductXml,
-  cloudinaryToJpeg,
   describeDarazError,
   extractAuthCode,
   flattenCategoryTree,
@@ -28,19 +27,6 @@ describe('signRequest', () => {
     expect(signRequest('/x', { a: '2' }, 's')).not.toBe(a);
     expect(signRequest('/y', { a: '1' }, 's')).not.toBe(a);
     expect(signRequest('/x', { a: '1' }, 't')).not.toBe(a);
-  });
-});
-
-describe('cloudinaryToJpeg', () => {
-  it('requests a JPEG rendition of a Cloudinary WebP', () => {
-    expect(
-      cloudinaryToJpeg('https://res.cloudinary.com/demo/image/upload/v1/quantumstore/products/123-abc.webp'),
-    ).toBe('https://res.cloudinary.com/demo/image/upload/f_jpg,q_90/v1/quantumstore/products/123-abc.jpg');
-  });
-
-  it('leaves non-Cloudinary URLs alone', () => {
-    const url = 'https://example.com/a/upload/b.webp';
-    expect(cloudinaryToJpeg(url)).toBe(url);
   });
 });
 

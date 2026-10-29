@@ -8,7 +8,6 @@ import {
 } from '../_lib/daraz.js';
 import {
   AUTO_ATTRIBUTES,
-  cloudinaryToJpeg,
   specsToHtml,
   type DarazProductInput,
 } from '../_lib/darazCore.js';
@@ -84,8 +83,8 @@ export default route('POST', async (req, res) => {
     throw new HttpError(400, `Fill in the required Daraz fields: ${missing.map((a) => a.label).join(', ')}`);
   }
 
-  // Daraz hosts its own copies; migrate in parallel, JPEG renditions of the Cloudinary WebPs.
-  const sources = body.images.slice(0, MAX_IMAGES).map(cloudinaryToJpeg);
+  // Daraz hosts its own copies; migrate in parallel. The backend stores full-size images as JPEG, which Daraz accepts.
+  const sources = body.images.slice(0, MAX_IMAGES);
   const hosted = await Promise.all(sources.map((url) => migrateImage(url, accessToken)));
 
   const input: DarazProductInput = {

@@ -12,7 +12,7 @@ export const isPublicUrl = (url: string) => /^https:\/\//i.test(url);
 /**
  * Daraz downloads product images from the internet, so every image must be a public https address.
  * Images the backend kept on its own disk are sent through the upload again; if the backend still answers
- * with a non-public address, its storage is not set to Cloudinary and the error says so.
+ * with a non-public address, its storage is not set to Google Drive and the error says so.
  */
 export async function ensurePublicImages(images: ProductImage[], { download, upload }: Deps) {
   let changed = false;
@@ -33,7 +33,7 @@ export async function ensurePublicImages(images: ProductImage[], { download, upl
     }
     if (!isPublicUrl(stored.url)) {
       throw new Error(
-        'The backend is saving images on its own disk, so Daraz cannot reach them. Set STORAGE_DRIVER=cloudinary in backend/.env and restart the backend',
+        'The backend is saving images on its own disk, so Daraz cannot reach them. Set STORAGE_DRIVER=gdrive and the Google Drive settings on the backend (Vercel environment variables), then redeploy it',
       );
     }
     result.push({ url: stored.url, thumbnail: stored.thumbnail || stored.url });

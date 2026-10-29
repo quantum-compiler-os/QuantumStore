@@ -243,7 +243,7 @@ export default function Publish() {
     <div>
       <h1>Publish product</h1>
       <p className="muted">
-        Fill the form once. Images go to Cloudinary through the QuantumStore backend, and the product is created on
+        Fill the form once. Images go to Google Drive through the QuantumStore backend, and the product is created on
         QuantumStore and Daraz together.
       </p>
 
@@ -264,7 +264,7 @@ export default function Publish() {
               <input type="checkbox" checked={toStore} onChange={(e) => setToStore(e.target.checked)} />
               <span>
                 <strong>QuantumStore</strong>
-                <small>Your own shop. Images are stored on Cloudinary.</small>
+                <small>Your own shop. Images are stored in Google Drive.</small>
               </span>
             </label>
             <label className="target-card">

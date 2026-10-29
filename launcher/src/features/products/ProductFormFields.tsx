@@ -17,7 +17,7 @@ type Props = {
   onUploadingChange?: (uploading: boolean) => void;
 };
 
-/** The product fields shared by "Publish" and "Edit": details, Cloudinary image upload, variants, specs. */
+/** The product fields shared by "Publish" and "Edit": details, image upload (Google Drive), variants, specs. */
 export default function ProductFormFields({
   form,
   setForm,
@@ -63,7 +63,7 @@ export default function ProductFormFields({
     if (!files.length) return;
     setBusy(true);
     try {
-      // Goes through the backend's POST /api/uploads, which stores on Cloudinary.
+      // Goes through the backend's POST /api/uploads, which stores them in Google Drive.
       const uploaded = await Promise.all(
         files.map(async (file) => {
           const body = new FormData();
