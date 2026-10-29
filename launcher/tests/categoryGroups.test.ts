@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DARAZ_LEVEL1_COMMISSION,
+  grossUpPrice,
   commissionFor,
   filterLeaves,
   groupOf,
@@ -46,5 +47,28 @@ describe('group helpers', () => {
   it('shows nothing until there is a group or a query, and caps the list', () => {
     expect(filterLeaves(leaves, '', '')).toEqual([]);
     expect(filterLeaves(leaves, 'Mobiles & Tablets', '', 1)).toHaveLength(1);
+  });
+});
+
+describe('grossUpPrice', () => {
+  it('prices so that what is left after the commission is the entered amount', () => {
+    expect(grossUpPrice(8000, 14.8)).toBe(9390); // 9390 − 14.8% of 9390 = 8000.28
+    expect(grossUpPrice(155, 16)).toBe(185);
+    expect(grossUpPrice(1000, 0)).toBe(1000);
+  });
+
+  it('never leaves the seller short, and does not round an exact result up', () => {
+    for (const [price, commission] of [[8000, 14.8], [1799, 12.9], [249, 8.6], [5000, 20]] as const) {
+      const sellingPrice = grossUpPrice(price, commission);
+      expect(sellingPrice - (sellingPrice * commission) / 100).toBeGreaterThanOrEqual(price - 1e-6);
+    }
+    expect(grossUpPrice(850, 15)).toBe(1000);
+  });
+
+  it('leaves the price alone when the commission is unknown, and ignores bad prices', () => {
+    expect(grossUpPrice(155, null)).toBe(155);
+    expect(grossUpPrice(155, 100)).toBe(155);
+    expect(grossUpPrice(0, 16)).toBe(0);
+    expect(grossUpPrice(Number.NaN, 16)).toBe(0);
   });
 });

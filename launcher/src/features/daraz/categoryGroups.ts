@@ -78,3 +78,16 @@ export function filterLeaves(leaves: DarazCategoryLeaf[], group: string, query: 
   });
   return hits.slice(0, limit);
 }
+
+/**
+ * The Daraz price that leaves `price` after Daraz keeps its commission from the selling price:
+ * price = daraz_price − commission% of daraz_price, so daraz_price = price ÷ (1 − commission%).
+ * Rs 8,000 with 14.8% commission → Rs 9,390. Rounded up to the next rupee so the seller never gets less.
+ * An unknown commission leaves the price as entered. Only Daraz gets this; QuantumStore keeps the entered price.
+ */
+export function grossUpPrice(price: number, commissionPercent: number | null) {
+  if (!Number.isFinite(price) || price <= 0) return 0;
+  const rate = (commissionPercent ?? 0) / 100;
+  if (rate <= 0 || rate >= 1) return Math.round(price);
+  return Math.ceil(price / (1 - rate) - 1e-9);
+}

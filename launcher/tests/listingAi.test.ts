@@ -238,9 +238,13 @@ describe('the Publish form helpers', () => {
 });
 
 describe('darazPrice', () => {
-  it('is exactly the price entered, whatever the category commission is', () => {
+  it('prices so the seller keeps the entered amount after the commission (books: 14.8%)', () => {
     const book = { ...initialDaraz(), categoryId: 1, categoryLabel: 'Media, Music & Books › Books' };
-    expect(darazPrice(book, '8000')).toBe(8000);
+    expect(darazPrice(book, '8000')).toBe(9390);
+  });
+
+  it('leaves the price as entered when the category has no known commission', () => {
+    expect(darazPrice({ ...initialDaraz(), categoryId: 1, categoryLabel: 'Unknown › Leaf' }, '8000')).toBe(8000);
   });
 
   it('lets a custom Daraz price win and ignores a bad price', () => {

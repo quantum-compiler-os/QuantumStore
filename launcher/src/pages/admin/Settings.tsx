@@ -4,14 +4,9 @@ import api from '../../api/client';
 import type { User } from '../../api/types';
 import { useAuth } from '../../context/AuthContext';
 import DarazConnectionCard from '../../features/daraz/DarazConnectionCard';
+import { pkrRateFrom } from '../../features/products/pricing';
 import { useToast } from '../../context/ToastContext';
 import { getErrorMessage } from '../../utils/errors';
-
-function pkrRateFrom(currencies: unknown): number | undefined {
-  const list = Array.isArray(currencies) ? (currencies as Array<{ code?: string; rate?: unknown }>) : [];
-  const rate = Number(list.find((c) => c?.code === 'PKR')?.rate);
-  return rate > 0 ? rate : undefined;
-}
 
 export default function Settings() {
   const { isAdmin } = useAuth();

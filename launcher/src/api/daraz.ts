@@ -136,6 +136,19 @@ export async function updateDarazImages(quantumProductId: string, images: string
   return data;
 }
 
+export type DarazListingRow = { quantumProductId: string; itemId: string; sellerSku: string; createdAt: string };
+
+/** Every product the Launcher has listed on Daraz, newest first (includes ones whose store product is gone). */
+export async function getAllDarazListings() {
+  const { data } = await launcherApi.get<{ all: DarazListingRow[] }>('/daraz/listings', { params: { all: 1 } });
+  return data.all;
+}
+
+/** Takes the item off Daraz. Pass the QuantumStore product id, or the Daraz item id for a leftover listing. */
+export async function removeFromDaraz(input: { quantumProductId?: string; itemId?: string }) {
+  await launcherApi.post('/daraz/remove', input);
+}
+
 export async function publishToDaraz(body: DarazPublishRequest) {
   const { data } = await launcherApi.post<DarazPublishResult & { ok: true }>('/daraz/publish', body);
   return data;

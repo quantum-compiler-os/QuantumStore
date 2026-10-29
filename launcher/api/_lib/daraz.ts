@@ -1,4 +1,5 @@
 import { HttpError } from './http.js';
+import { failureReason, withRetry } from './net.js';
 import { connectionCollection, type DarazConnection } from './db.js';
 import {
   buildImageMigrateXml,
@@ -7,6 +8,7 @@ import {
   describeDarazError,
   flattenCategoryTree,
   normalizeAttributes,
+  removeProductAttempts,
   signRequest,
   type DarazAttribute,
   type DarazCategoryLeaf,
@@ -57,16 +59,21 @@ async function call<T = any>(apiPath: string, { method = 'GET', params = {}, acc
   const url = `${host}/rest${apiPath}?${query}`;
   let response: Response;
   try {
-    response =
-      method === 'GET'
-        ? await fetch(url)
-        : await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams(params),
-          });
-  } catch {
-    throw new DarazError('Could not reach Daraz — check your connection and try again');
+    // Reads are repeated once after a dropped connection; creating or changing things is never repeated.
+    response = await withRetry(
+      () =>
+        method === 'GET'
+          ? fetch(url, { signal: AbortSignal.timeout(45_000) })
+          : fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams(params),
+              signal: AbortSignal.timeout(60_000),
+            }),
+      { retries: method === 'GET' ? 1 : 0 },
+    );
+  } catch (err) {
+    throw new DarazError(`Could not reach Daraz (${failureReason(err)}) — check your connection and try again`);
   }
 
   const text = await response.text();
@@ -207,6 +214,28 @@ export async function getSkuId(itemId: string, accessToken: string) {
   const skuId = body.data?.skus?.[0]?.SkuId;
   if (skuId === undefined || skuId === null || skuId === '') throw new DarazError('Daraz did not return the SKU id of this item');
   return String(skuId);
+}
+
+/** Takes an item off Daraz. Tries the SKU id first, then the seller SKU (see removeProductAttempts). */
+export async function removeProduct(
+  listing: { darazItemId: string; skuId: string; sellerSku: string },
+  accessToken: string,
+) {
+  let lastError: unknown;
+  for (const params of removeProductAttempts({
+    itemId: listing.darazItemId,
+    skuId: listing.skuId,
+    sellerSku: listing.sellerSku,
+  })) {
+    try {
+      await call('/product/remove', { method: 'POST', accessToken, params });
+      return;
+    } catch (err) {
+      if (!(err instanceof DarazError)) throw err;
+      lastError = err;
+    }
+  }
+  throw lastError;
 }
 
 export type DarazCreateResult ={ itemId: string; skuId: string; sellerSku: string };

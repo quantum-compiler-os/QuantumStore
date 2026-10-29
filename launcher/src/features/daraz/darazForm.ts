@@ -1,4 +1,5 @@
 import type { PreparedListing } from '../../api/daraz';
+import { grossUpPrice, commissionFor, groupOf } from './categoryGroups';
 
 export type DarazForm = {
   categoryId: number | null;
@@ -61,12 +62,12 @@ export function applyPrepared(daraz: DarazForm, prepared: PreparedListing): Dara
   return next;
 }
 
-/** The price entered above, exactly as typed (Rs), unless a different Daraz price is set. */
+/** The Daraz price: what leaves the entered price after the chosen category's commission, unless a custom price is set. */
 export function darazPrice(daraz: DarazForm, storePrice: string) {
   const custom = Number(daraz.price);
   if (custom > 0) return custom;
-  const price = Number(storePrice);
-  return Number.isFinite(price) && price > 0 ? price : 0;
+  const commission = daraz.categoryLabel ? commissionFor(groupOf(daraz.categoryLabel)) : null;
+  return grossUpPrice(Number(storePrice), commission);
 }
 
 /** What Daraz still lacks before a listing can be sent, as a sentence for the seller; '' when it is complete. */

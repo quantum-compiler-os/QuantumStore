@@ -1,4 +1,5 @@
 import { HttpError } from './http.js';
+import { failureReason, withRetry } from './net.js';
 import { parseJsonObject, type ChatMessage } from './categorySuggest.js';
 
 const ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
@@ -23,25 +24,35 @@ export async function chatJson(messages: ChatMessage[], options: Options = {}) {
   if (!apiKey) throw new HttpError(404, 'AI suggestions are off: set GROQ_API_KEY in the Launcher environment');
 
   const model = env.GROQ_MODEL || DEFAULT_MODEL;
+  const payload = JSON.stringify({
+    model,
+    messages,
+    temperature: 0,
+    // Room for a reasoning model's thinking as well as the short JSON answer.
+    max_tokens: maxTokens,
+    // Classification needs no long chain of thought; keeps answers fast and cheap.
+    ...(model.startsWith('openai/gpt-oss') ? { reasoning_effort: 'low' } : {}),
+    response_format: { type: 'json_object' },
+  });
   let response: Response;
   try {
-    response = await fetchImpl(ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0,
-        // Room for a reasoning model's thinking as well as the short JSON answer.
-        max_tokens: maxTokens,
-        // Classification needs no long chain of thought; keeps answers fast and cheap.
-        ...(model.startsWith('openai/gpt-oss') ? { reasoning_effort: 'low' } : {}),
-        response_format: { type: 'json_object' },
-      }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch {
-    throw new HttpError(504, 'Groq did not answer in time — try again');
+    // A dropped connection is retried once; a slow answer is not (that would double the wait).
+    response = await withRetry(
+      () =>
+        fetchImpl(ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: payload,
+          signal: AbortSignal.timeout(timeoutMs),
+        }),
+      { retries: 1, retryOn: (err) => failureReason(err) !== 'timed out' },
+    );
+  } catch (err) {
+    const reason = failureReason(err);
+    throw new HttpError(
+      504,
+      reason === 'timed out' ? 'Groq did not answer in time — try again' : `Could not reach Groq (${reason}) — check your connection and try again`,
+    );
   }
 
   if (response.status === 401 || response.status === 403) {

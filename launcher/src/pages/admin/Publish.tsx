@@ -10,7 +10,7 @@ import {
   type DarazPublishResult,
 } from '../../api/daraz';
 import type { Product } from '../../api/types';
-import { commissionFor, groupOf } from '../../features/daraz/categoryGroups';
+import { grossUpPrice, commissionFor, groupOf } from '../../features/daraz/categoryGroups';
 import DarazAuthPrompt from '../../features/daraz/DarazAuthPrompt';
 import DarazPanel from '../../features/daraz/DarazPanel';
 import {
@@ -32,6 +32,7 @@ import {
   type ProductForm,
 } from '../../features/products/productForm';
 import { queryKeys } from '../../hooks/queryKeys';
+import { usePkrRate } from '../../hooks/usePkrRate';
 import { useProductCategoryNames } from '../../hooks/useProducts';
 import { getErrorMessage } from '../../utils/errors';
 
@@ -69,6 +70,7 @@ export default function Publish() {
   const [darazResult, setDarazResult] = useState<DarazPublishResult | null>(null);
   const skuSuffix = useRef(Math.random().toString(36).slice(2, 6).toUpperCase());
 
+  const { rate: pkrRate, ready: rateReady } = usePkrRate();
   const { data: categoryNames } = useProductCategoryNames();
   const categories = categoryNames?.length ? categoryNames : ['Laptops'];
 
@@ -102,9 +104,9 @@ export default function Publish() {
     retry: false,
   });
 
-  // The price is in rupees and goes to Daraz exactly as entered; the commission is only shown as information.
+  // QuantumStore gets the price exactly as entered; Daraz gets the price that leaves it after Daraz's commission.
   const commission = daraz.categoryLabel ? commissionFor(groupOf(daraz.categoryLabel)) : null;
-  const autoPrice = form.price;
+  const autoPrice = form.price ? String(grossUpPrice(Number(form.price), commission)) : '';
   const autoSku = slugSku(form.name, skuSuffix.current);
 
   const showResult = storeStep.status !== 'idle' || darazStep.status !== 'idle';
@@ -240,7 +242,7 @@ export default function Publish() {
       try {
         // With Daraz on, the Daraz category group decides the store category.
         const category = darazOn ? await ensureStoreCategory(groupOf(plan.categoryLabel), categories) : form.category;
-        const { data } = await api.post<Product>('/products', buildProductPayload({ ...form, images, category }));
+        const { data } = await api.post<Product>('/products', buildProductPayload({ ...form, images, category }, pkrRate));
         setCreatedProduct(data);
         productId = data._id;
         setStoreStep({ status: 'done', message: 'Product created' });
@@ -356,6 +358,7 @@ export default function Publish() {
                 productDescription={form.description}
                 aiConfigured={Boolean(status?.aiConfigured)}
                 storeStock={form.stock}
+                storePrice={form.price}
                 commission={commission}
                 autoPrice={autoPrice}
                 autoSku={autoSku}
@@ -391,7 +394,7 @@ export default function Publish() {
           )}
           <div className="admin-quick">
             {!allDone && (
-              <button type="submit" className="btn btn-primary" disabled={busy || uploading}>
+              <button type="submit" className="btn btn-primary" disabled={busy || uploading || !rateReady}>
                 {busy ? phase || 'Publishing…' : canRetryDaraz ? 'Retry Daraz' : 'Publish'}
               </button>
             )}

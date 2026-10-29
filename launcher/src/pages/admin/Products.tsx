@@ -2,13 +2,16 @@ import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../api/client';
-import { getDarazListings, updateDarazImages } from '../../api/daraz';
+import { getDarazListings, removeFromDaraz, updateDarazImages } from '../../api/daraz';
 import type { Product } from '../../api/types';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
+import DarazListingsCard from '../../features/daraz/DarazListingsCard';
 import ProductFormFields from '../../features/products/ProductFormFields';
+import { storedToRupees } from '../../features/products/pricing';
 import { buildProductPayload, emptyForm, productToForm, type ProductForm } from '../../features/products/productForm';
 import { queryKeys } from '../../hooks/queryKeys';
+import { usePkrRate } from '../../hooks/usePkrRate';
 import { useProductCategoryNames, useProducts } from '../../hooks/useProducts';
 import { getErrorMessage } from '../../utils/errors';
 
@@ -37,6 +40,7 @@ export default function Products() {
     limit: 10,
     sort: 'newest',
   });
+  const { rate: pkrRate, ready: rateReady } = usePkrRate();
   const { data: categoryNames } = useProductCategoryNames();
   const products = productsData?.items || [];
   const pages = productsData?.pages || 1;
@@ -74,7 +78,7 @@ export default function Products() {
 
   function startEdit(product: Product) {
     setEditingId(product._id);
-    setForm(productToForm(product));
+    setForm(productToForm(product, pkrRate));
     setError('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -96,7 +100,7 @@ export default function Products() {
       return;
     }
     try {
-      await api.put(`/products/${editingId}`, buildProductPayload(form));
+      await api.put(`/products/${editingId}`, buildProductPayload(form, pkrRate));
       await invalidate();
       toast.success('Product saved');
       if (darazListings?.[editingId]) {
@@ -118,6 +122,29 @@ export default function Products() {
     }
   }
 
+  /**
+   * Takes the given products off Daraz before they are deleted here, so no listing is left behind. When Daraz
+   * refuses, the seller decides whether to delete from QuantumStore anyway. Returns false to stop the delete.
+   */
+  async function removeFromDarazFirst(ids: string[]) {
+    const listed = ids.filter((id) => darazListings?.[id]);
+    const failures: string[] = [];
+    for (const id of listed) {
+      try {
+        await removeFromDaraz({ quantumProductId: id });
+      } catch (err) {
+        failures.push(getErrorMessage(err, 'Daraz refused the request'));
+      }
+    }
+    if (listed.length) await queryClient.invalidateQueries({ queryKey: ['daraz', 'listings'] });
+    if (!failures.length) return true;
+    return confirm(
+      `Daraz did not remove ${failures.length === 1 ? 'the listing' : `${failures.length} listings`}: ${failures[0]}. ` +
+        'Delete from QuantumStore anyway? The Daraz listing stays and can be removed from the "Listed on Daraz" list below.',
+      { title: 'Could not remove from Daraz', confirmLabel: 'Delete anyway', tone: 'danger' },
+    );
+  }
+
   async function handleDelete(id: string) {
     const ok = await confirm('This will permanently remove the product from your catalog.', {
       title: 'Delete this product?',
@@ -126,6 +153,7 @@ export default function Products() {
     });
     if (!ok) return;
     try {
+      if (!(await removeFromDarazFirst([id]))) return;
       await api.delete(`/products/${id}`);
       await invalidate();
       toast.success('Product deleted');
@@ -161,6 +189,7 @@ export default function Products() {
         { title: 'Delete selected products?', confirmLabel: 'Delete', tone: 'danger' },
       );
       if (!ok) return;
+      if (!(await removeFromDarazFirst(selected))) return;
     }
     try {
       await api.post('/products/bulk', { ids: selected, action });
@@ -263,7 +292,7 @@ export default function Products() {
           />
           {error && <p className="form-error">{error}</p>}
           <div className="admin-quick">
-            <button type="submit" className="btn btn-primary" disabled={saving || uploading}>
+            <button type="submit" className="btn btn-primary" disabled={saving || uploading || !rateReady}>
               {saving ? 'Saving…' : 'Update product'}
             </button>
             <button type="button" className="btn btn-ghost" onClick={resetForm}>
@@ -337,7 +366,7 @@ export default function Products() {
                   </div>
                 </td>
                 <td data-label="Category">{product.category}</td>
-                <td data-label="Price">Rs {product.price.toLocaleString()}</td>
+                <td data-label="Price">Rs {storedToRupees(product.price, pkrRate).toLocaleString()}</td>
                 <td data-label="Stock">
                   <input
                     className="input qty-input"
@@ -386,6 +415,8 @@ export default function Products() {
           Next
         </button>
       </div>
+
+      <DarazListingsCard />
     </div>
   );
 }

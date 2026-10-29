@@ -1,4 +1,5 @@
 import type { Product, ProductVariant } from '../../api/types';
+import { rupeesToStored, storedToRupees } from './pricing';
 
 export type ProductImage = { url: string; thumbnail: string };
 
@@ -30,7 +31,8 @@ export const emptyForm: ProductForm = {
   featured: false,
 };
 
-export function parseVariants(text: string): ProductVariant[] {
+/** Variant prices are typed in rupees; `rate` turns them into the stored value (1 keeps them as typed). */
+export function parseVariants(text: string, rate = 1): ProductVariant[] {
   return String(text || '')
     .split('\n')
     .map((line) => line.trim())
@@ -39,7 +41,7 @@ export function parseVariants(text: string): ProductVariant[] {
       const [label, price, stock] = line.split(',').map((part) => part.trim());
       return {
         label,
-        price: Number(price),
+        price: rupeesToStored(Number(price), rate),
         // Blank stock = untracked (always available)
         stock: stock ? Number(stock) : null,
       };
@@ -60,13 +62,16 @@ export function parseSpecs(text: string) {
     .filter((s): s is { key: string; value: string } => Boolean(s?.key && s?.value));
 }
 
-/** Body for `POST/PUT /api/products`. The first image is the cover, the rest go in `images`. */
-export function buildProductPayload(form: ProductForm) {
+/**
+ * Body for `POST/PUT /api/products`. The first image is the cover, the rest go in `images`.
+ * Prices in the form are rupees; `rate` (PKR per base unit) converts them to what the store keeps.
+ */
+export function buildProductPayload(form: ProductForm, rate: number) {
   const [cover, ...rest] = form.images;
   return {
     name: form.name,
     description: form.description,
-    price: Number(form.price),
+    price: rupeesToStored(Number(form.price), rate),
     category: form.category,
     stock: form.stock.trim() === '' ? null : Number(form.stock),
     image: cover.url,
@@ -74,24 +79,25 @@ export function buildProductPayload(form: ProductForm) {
     brand: form.brand,
     featured: form.featured,
     images: rest.map((img) => img.url),
-    variants: parseVariants(form.variantsText),
+    variants: parseVariants(form.variantsText, rate),
     specs: parseSpecs(form.specsText),
     productType: form.productType,
   };
 }
 
-export function productToForm(product: Product): ProductForm {
+/** The edit form shows rupees, so the stored prices are multiplied by `rate`. */
+export function productToForm(product: Product, rate: number): ProductForm {
   return {
     name: product.name,
     description: product.description,
-    price: String(product.price),
+    price: String(storedToRupees(product.price, rate)),
     category: product.category,
     stock: product.stock == null ? '' : String(product.stock),
     images: [
       { url: product.image, thumbnail: product.thumbnail || product.image },
       ...(product.images || []).map((url) => ({ url, thumbnail: url })),
     ],
-    variantsText: (product.variants || []).map((v) => `${v.label},${v.price},${v.stock ?? ''}`).join('\n'),
+    variantsText: (product.variants || []).map((v) => `${v.label},${storedToRupees(v.price, rate)},${v.stock ?? ''}`).join('\n'),
     specsText: (product.specs || []).map((s) => `${s.key}:${s.value}`).join('\n'),
     productType: product.productType === 'gift_card' ? 'gift_card' : 'standard',
     brand: product.brand || 'Quantum',

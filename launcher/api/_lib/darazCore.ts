@@ -225,6 +225,17 @@ export function buildSetImagesXml(skuId: string, urls: string[]) {
 
 type RawCategory ={ category_id: number; name: string; leaf?: boolean; children?: RawCategory[] };
 
+/**
+ * The parameter sets to try, in order, for removing an item (Daraz "RemoveProduct"). Daraz has been retiring the
+ * seller SKU in favour of the SKU id, so that is tried first and the seller SKU is the fallback.
+ */
+export function removeProductAttempts(listing: { itemId: string; skuId: string; sellerSku: string }) {
+  const attempts: Array<Record<string, string>> = [];
+  if (listing.skuId) attempts.push({ sku_id_list: JSON.stringify([`SkuId_${listing.itemId}_${listing.skuId}`]) });
+  attempts.push({ seller_sku_list: JSON.stringify([listing.sellerSku]) });
+  return attempts;
+}
+
 export function flattenCategoryTree(tree: RawCategory[], trail: string[] = []): DarazCategoryLeaf[] {
   const out: DarazCategoryLeaf[] = [];
   for (const node of tree || []) {

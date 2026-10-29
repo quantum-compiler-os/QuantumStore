@@ -7,6 +7,7 @@ import {
   buildImageMigrateXml,
   buildProductXml,
   buildSetImagesXml,
+  removeProductAttempts,
   describeDarazError,
   extractAuthCode,
   flattenCategoryTree,
@@ -204,5 +205,20 @@ describe('description cover image', () => {
 
   it('leaves the description as it is without a cover image', () => {
     expect(buildProductXml(input)).toContain('<description><![CDATA[A book about maths.]]></description>');
+  });
+});
+
+describe('removeProductAttempts', () => {
+  it('tries the SKU id first and the seller SKU second', () => {
+    expect(removeProductAttempts({ itemId: '111', skuId: '222', sellerSku: 'BOOK-1' })).toEqual([
+      { sku_id_list: '["SkuId_111_222"]' },
+      { seller_sku_list: '["BOOK-1"]' },
+    ]);
+  });
+
+  it('only has the seller SKU when the SKU id is unknown', () => {
+    expect(removeProductAttempts({ itemId: '111', skuId: '', sellerSku: 'BOOK-1' })).toEqual([
+      { seller_sku_list: '["BOOK-1"]' },
+    ]);
   });
 });

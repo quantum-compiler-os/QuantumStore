@@ -17,7 +17,7 @@ type Props = {
   onUploadingChange?: (uploading: boolean) => void;
 };
 
-/** The product fields shared by "Publish" and "Edit": details, image upload (Google Drive), variants, specs. */
+/** The product fields shared by "Publish" and "Edit": details, image upload (Google Drive) and description. */
 export default function ProductFormFields({
   form,
   setForm,
@@ -304,26 +304,6 @@ export default function ProductFormFields({
         </div>
       )}
 
-      <label>
-        Variants (label,price,stock — one per line; blank stock = unlimited)
-        <textarea
-          className="input"
-          rows={3}
-          placeholder="256GB,899,10&#10;512GB,1099,5"
-          value={form.variantsText}
-          onChange={(e) => setForm({ ...form, variantsText: e.target.value })}
-        />
-      </label>
-      <label>
-        Specs (key:value — one per line)
-        <textarea
-          className="input"
-          rows={3}
-          placeholder="RAM:16GB&#10;Storage:512GB SSD"
-          value={form.specsText}
-          onChange={(e) => setForm({ ...form, specsText: e.target.value })}
-        />
-      </label>
       <label>
         Description
         <textarea
