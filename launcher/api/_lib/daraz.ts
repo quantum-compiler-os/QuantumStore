@@ -190,12 +190,23 @@ export async function migrateImage(url: string, accessToken: string) {
 }
 
 /** Replaces the images shown on an existing listing. Pass Daraz-hosted URLs (see migrateImage). */
-export async function setImages(sellerSku: string, hostedUrls: string[], accessToken: string) {
+export async function setImages(skuId: string, hostedUrls: string[], accessToken: string) {
   await call('/images/set', {
     method: 'POST',
     accessToken,
-    params: { payload: buildSetImagesXml(sellerSku, hostedUrls) },
+    params: { payload: buildSetImagesXml(skuId, hostedUrls) },
   });
+}
+
+/** The SKU id of an existing item, for listings whose id was not saved when they were created. */
+export async function getSkuId(itemId: string, accessToken: string) {
+  const body = await call<{ data?: { skus?: Array<{ SkuId?: number | string }> } }>('/product/item/get', {
+    accessToken,
+    params: { item_id: itemId },
+  });
+  const skuId = body.data?.skus?.[0]?.SkuId;
+  if (skuId === undefined || skuId === null || skuId === '') throw new DarazError('Daraz did not return the SKU id of this item');
+  return String(skuId);
 }
 
 export type DarazCreateResult ={ itemId: string; skuId: string; sellerSku: string };

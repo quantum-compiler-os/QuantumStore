@@ -97,20 +97,20 @@ export default function Products() {
     }
     try {
       await api.put(`/products/${editingId}`, buildProductPayload(form));
-      const darazItem = darazListings?.[editingId];
-      const images = form.images.map((image) => image.url);
-      resetForm();
       await invalidate();
       toast.success('Product saved');
-      if (darazItem) {
-        // The Daraz listing is separate, so the images are sent there as well.
+      if (darazListings?.[editingId]) {
+        // The Daraz listing is separate, so the images are sent there as well. The form stays open if Daraz refuses,
+        // with the reason on screen, and pressing Update product again retries.
         try {
-          await updateDarazImages(editingId, images);
-          toast.success('Images updated on Daraz');
+          const sent = await updateDarazImages(editingId, form.images.map((image) => image.url));
+          toast.success(`${sent.count} image${sent.count === 1 ? '' : 's'} sent to Daraz`);
         } catch (err) {
-          toast.error(`Saved on QuantumStore, but Daraz images were not updated: ${getErrorMessage(err, 'Daraz refused the images')}`);
+          setError(`Saved on QuantumStore, but Daraz did not take the images: ${getErrorMessage(err, 'Daraz refused the images')}`);
+          return;
         }
       }
+      resetForm();
     } catch (err) {
       setError(getErrorMessage(err, 'Could not save product'));
     } finally {

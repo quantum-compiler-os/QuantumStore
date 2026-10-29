@@ -205,11 +205,11 @@ export function buildImageMigrateXml(url: string) {
   return `<?xml version="1.0" encoding="UTF-8" ?><Request><Image><Url>${xmlEscape(url)}</Url></Image></Request>`;
 }
 
-/** Replaces the images of an existing item's SKU (Daraz "SetImages"). `urls` must already be Daraz-hosted. */
-export function buildSetImagesXml(sellerSku: string, urls: string[]) {
+/** Replaces the images of an existing item's SKU (Daraz "SetImages", which wants the SkuId, not the seller SKU). */
+export function buildSetImagesXml(skuId: string, urls: string[]) {
   return (
     '<?xml version="1.0" encoding="UTF-8" ?>' +
-    `<Request><Product><Skus><Sku>${tag('SellerSku', sellerSku)}${imagesXml(urls)}</Sku></Skus></Product></Request>`
+    `<Request><Product><Skus><Sku>${tag('SkuId', skuId)}${imagesXml(urls)}</Sku></Skus></Product></Request>`
   );
 }
 

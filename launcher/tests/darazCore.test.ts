@@ -173,8 +173,9 @@ describe('brands', () => {
 
 describe('buildSetImagesXml', () => {
   it('lists the new images under the SKU and escapes the values', () => {
-    const xml = buildSetImagesXml('BOOK-1', ['https://img.example/a.jpg', 'https://img.example/b.jpg?x=1&y=2']);
-    expect(xml).toContain('<Skus><Sku><SellerSku>BOOK-1</SellerSku><Images>');
+    const xml = buildSetImagesXml('12345', ['https://img.example/a.jpg', 'https://img.example/b.jpg?x=1&y=2']);
+    expect(xml).toContain('<Skus><Sku><SkuId>12345</SkuId><Images>');
+    expect(xml).not.toContain('SellerSku');
     expect(xml).toContain('<Image>https://img.example/a.jpg</Image>');
     expect(xml).toContain('<Image>https://img.example/b.jpg?x=1&amp;y=2</Image>');
   });
