@@ -35,6 +35,27 @@ export type DarazProductInput = {
   attributes: Record<string, string>;
 };
 
+/** Daraz's own placeholder brand; always accepted. */
+export const NO_BRAND = 'No Brand';
+
+/**
+ * Daraz only takes brands from its own list. When the category lists its brand options, the seller's brand is
+ * matched against them (ignoring case and spacing) and replaced by "No Brand" if it is not there. When no list
+ * is given the brand is passed on and `isRejectedValue` below catches a refusal.
+ */
+export function resolveBrand(brand: string, options: string[] = []) {
+  const wanted = brand.trim();
+  if (!wanted) return NO_BRAND;
+  if (!options.length) return wanted;
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  return options.find((o) => norm(o) === norm(wanted)) ?? NO_BRAND;
+}
+
+/** Daraz's "value is not in the dropdown" error names the offending value, e.g. `…Zia ul Quran[-1]`. */
+export function isRejectedValue(message: string, value: string) {
+  return Boolean(value.trim()) && message.toLowerCase().includes(value.trim().toLowerCase());
+}
+
 /** Attributes the launcher fills from the core form, so they are never asked for twice. */
 export const AUTO_ATTRIBUTES = new Set([
   'name',
@@ -81,12 +102,17 @@ export function xmlEscape(value: string) {
 }
 
 /** Element names come from Daraz attribute names; refuse anything that is not a plain tag name. */
-function tag(name: string, value: string) {
+function checkTagName(name: string) {
   if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) throw new Error(`Invalid Daraz attribute name: ${name}`);
+}
+
+function tag(name: string, value: string) {
+  checkTagName(name);
   return `<${name}>${xmlEscape(value)}</${name}>`;
 }
 
 function htmlTag(name: string, html: string) {
+  checkTagName(name);
   return `<${name}><![CDATA[${html.replace(/\]\]>/g, ']]]]><![CDATA[>')}]]></${name}>`;
 }
 
@@ -102,6 +128,29 @@ export function plainTextToHtml(text: string) {
   return htmlEscape(text).replace(/\r?\n/g, '<br/>');
 }
 
+const HAS_HTML = /<[a-z][\s\S]*>/i;
+
+/** Category attributes that hold formatted text (English description, highlights) rather than a plain value. */
+export function isRichTextAttribute(name: string, inputType = '') {
+  return inputType === 'richText' || /(^|_)description/i.test(name);
+}
+
+/**
+ * Form values are plain text. Highlights ("short_description…") become a bullet list, one bullet per line;
+ * descriptions keep their line breaks. A value that already holds HTML is sent as it is.
+ */
+export function richTextToHtml(name: string, value: string) {
+  if (HAS_HTML.test(value)) return value;
+  if (/short_description|highlight/i.test(name)) {
+    const items = value
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^\s*[-•*]\s*/, '').trim())
+      .filter(Boolean);
+    return `<ul>${items.map((item) => `<li>${htmlEscape(item)}</li>`).join('')}</ul>`;
+  }
+  return plainTextToHtml(value);
+}
+
 export function specsToHtml(specs: Array<{ key: string; value: string }>) {
   if (!specs.length) return '';
   const items = specs.map((s) => `<li>${htmlEscape(s.key)}: ${htmlEscape(s.value)}</li>`).join('');
@@ -110,6 +159,7 @@ export function specsToHtml(specs: Array<{ key: string; value: string }>) {
 
 export function buildProductXml(input: DarazProductInput, meta: DarazAttribute[] = []) {
   const skuNames = new Set(meta.filter((a) => a.attributeType === 'sku').map((a) => a.name));
+  const inputTypes = new Map(meta.map((a) => [a.name, a.inputType]));
   const productAttrs: string[] = [
     tag('name', input.name),
     htmlTag('description', plainTextToHtml(input.description)),
@@ -120,7 +170,10 @@ export function buildProductXml(input: DarazProductInput, meta: DarazAttribute[]
 
   for (const [name, value] of Object.entries(input.attributes)) {
     if (!value || AUTO_ATTRIBUTES.has(name)) continue;
-    (skuNames.has(name) ? skuAttrs : productAttrs).push(tag(name, value));
+    const xml = isRichTextAttribute(name, inputTypes.get(name))
+      ? htmlTag(name, richTextToHtml(name, value))
+      : tag(name, value);
+    (skuNames.has(name) ? skuAttrs : productAttrs).push(xml);
   }
 
   const pkg = input.package;

@@ -134,7 +134,7 @@ Environment (see `launcher/.env.example`):
 | `DARAZ_APP_KEY` / `DARAZ_APP_SECRET` | From the Daraz Open Platform app console. **Server-only** — never prefix with `VITE_` |
 | `DARAZ_REDIRECT_URI` | `https://<launcher-host>/launcher-api/daraz/callback` — register the same URL in the Daraz app |
 | `DARAZ_API_HOST` | Optional, defaults to `https://api.daraz.pk` |
-| `GROQ_API_KEY` / `GROQ_MODEL` | Optional. Enables Daraz category suggestions on Publish; server-only, never `VITE_` |
+| `GROQ_API_KEY` / `GROQ_MODEL` | Optional. Lets the AI pick the Daraz category and fill the English name/description/highlights, package size and required fields when you press Publish; server-only, never `VITE_` |
 
 Do **not** set `LAUNCHER_AUTO_LOGIN_*` on Vercel — a deployed Launcher always asks for the owner's email and password (the backend's `ADMIN_EMAIL` / `ADMIN_PASSWORD`). `DARAZ_REDIRECT_URI` must be exactly a callback registered in the Daraz app; the registered `requestcatcher` address works with **Finish connecting** (paste the code or the whole redirected address).
 

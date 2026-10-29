@@ -1,4 +1,5 @@
-const DEFAULTS_KEY = 'ql_daraz_defaults';
+import type { PreparedListing } from '../../api/daraz';
+import { addCommission, commissionFor, groupOf } from './categoryGroups';
 
 export type DarazForm = {
   categoryId: number | null;
@@ -15,46 +16,19 @@ export type DarazForm = {
   attributes: Record<string, string>;
 };
 
-/** What is worth remembering between products: the category and the usual package size. */
-type Remembered = Pick<DarazForm, 'categoryId' | 'categoryLabel' | 'weight' | 'length' | 'width' | 'height'>;
-
-export function loadDefaults(): Partial<Remembered> {
-  try {
-    return JSON.parse(localStorage.getItem(DEFAULTS_KEY) || '{}');
-  } catch {
-    return {};
-  }
-}
-
-export function saveDefaults(d: DarazForm) {
-  try {
-    const value: Remembered = {
-      categoryId: d.categoryId,
-      categoryLabel: d.categoryLabel,
-      weight: d.weight,
-      length: d.length,
-      width: d.width,
-      height: d.height,
-    };
-    localStorage.setItem(DEFAULTS_KEY, JSON.stringify(value));
-  } catch {
-    /* private mode — remembering is a convenience only */
-  }
-}
-
+/** Everything starts empty: the category, package size and category fields are worked out per product when publishing. */
 export function initialDaraz(): DarazForm {
-  const saved = loadDefaults();
   return {
-    categoryId: saved.categoryId ?? null,
-    categoryLabel: saved.categoryLabel ?? '',
+    categoryId: null,
+    categoryLabel: '',
     sellerSku: '',
     price: '',
     specialPrice: '',
     quantity: '',
-    weight: saved.weight ?? '',
-    length: saved.length ?? '',
-    width: saved.width ?? '',
-    height: saved.height ?? '',
+    weight: '',
+    length: '',
+    width: '',
+    height: '',
     content: '',
     attributes: {},
   };
@@ -67,4 +41,45 @@ export function slugSku(name: string, suffix: string) {
     .replace(/^-+|-+$/g, '')
     .slice(0, 24);
   return `${base || 'PRODUCT'}-${suffix}`;
+}
+
+const PACKAGE_FIELDS = ['weight', 'length', 'width', 'height'] as const;
+
+/** Merges the AI's work into the form. Anything the seller typed or picked is kept as it is. */
+export function applyPrepared(daraz: DarazForm, prepared: PreparedListing): DarazForm {
+  const typed = Object.fromEntries(Object.entries(daraz.attributes).filter(([, v]) => v.trim()));
+  const next: DarazForm = { ...daraz, attributes: { ...prepared.attributes, ...typed } };
+
+  if (daraz.categoryId === null && prepared.category) {
+    next.categoryId = prepared.category.id;
+    next.categoryLabel = prepared.category.path;
+  }
+  if (prepared.package) {
+    for (const field of PACKAGE_FIELDS) {
+      if (!(Number(daraz[field]) > 0)) next[field] = String(prepared.package[field]);
+    }
+  }
+  return next;
+}
+
+/** The store price with the chosen category's commission on top, unless a custom Daraz price is typed. */
+export function darazPrice(daraz: DarazForm, storePrice: string) {
+  const custom = Number(daraz.price);
+  if (custom > 0) return custom;
+  const commission = daraz.categoryLabel ? commissionFor(groupOf(daraz.categoryLabel)) : null;
+  return addCommission(Number(storePrice), commission);
+}
+
+/** What Daraz still lacks before a listing can be sent, as a sentence for the seller; '' when it is complete. */
+export function darazProblem(daraz: DarazForm, storePrice: string, storeStock: string): string {
+  if (daraz.categoryId === null) return 'Could not pick a Daraz category — open "Daraz details" and choose one';
+  if (!(darazPrice(daraz, storePrice) > 0)) return 'Enter a price for Daraz';
+  const quantity = daraz.quantity || storeStock;
+  if (quantity === '' || !Number.isInteger(Number(quantity))) {
+    return 'Enter a stock quantity (Daraz requires one)';
+  }
+  for (const field of PACKAGE_FIELDS) {
+    if (!(Number(daraz[field]) > 0)) return `Daraz needs the package ${field} — open "Daraz details" and enter it`;
+  }
+  return '';
 }

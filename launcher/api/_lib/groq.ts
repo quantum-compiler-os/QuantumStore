@@ -10,13 +10,15 @@ export function groqConfigured(env: Record<string, string | undefined> = process
 
 type Options = {
   timeoutMs?: number;
+  /** Answer budget; the short classification calls keep the default, writing a listing needs more. */
+  maxTokens?: number;
   env?: Record<string, string | undefined>;
   fetchImpl?: typeof fetch;
 };
 
 /** One Groq chat completion in JSON mode, returned as a parsed object. The key and model come from the environment. */
 export async function chatJson(messages: ChatMessage[], options: Options = {}) {
-  const { timeoutMs = 20_000, env = process.env, fetchImpl = fetch } = options;
+  const { timeoutMs = 20_000, maxTokens = 1024, env = process.env, fetchImpl = fetch } = options;
   const apiKey = env.GROQ_API_KEY;
   if (!apiKey) throw new HttpError(404, 'AI suggestions are off: set GROQ_API_KEY in the Launcher environment');
 
@@ -31,7 +33,7 @@ export async function chatJson(messages: ChatMessage[], options: Options = {}) {
         messages,
         temperature: 0,
         // Room for a reasoning model's thinking as well as the short JSON answer.
-        max_tokens: 1024,
+        max_tokens: maxTokens,
         // Classification needs no long chain of thought; keeps answers fast and cheap.
         ...(model.startsWith('openai/gpt-oss') ? { reasoning_effort: 'low' } : {}),
         response_format: { type: 'json_object' },

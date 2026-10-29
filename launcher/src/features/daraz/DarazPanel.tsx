@@ -80,6 +80,8 @@ export default function DarazPanel({
               </option>
             ))}
           </select>
+        ) : attr.inputType === 'richText' || /(^|_)description/i.test(attr.name) ? (
+          <textarea className="input" rows={3} value={value} onChange={(e) => change(e.target.value)} />
         ) : (
           <input className="input" value={value} onChange={(e) => change(e.target.value)} />
         )}
@@ -93,8 +95,8 @@ export default function DarazPanel({
         <div>
           <h2>Daraz listing</h2>
           <p className="muted">
-            Name, description, brand, images and specs come from the form above. Only what Daraz needs extra is
-            asked here, and your category and package size are remembered for next time.
+            Name, description, brand, images and specs come from the form above. The AI picks the category and fills
+            the rest when you press Publish; anything you type here is kept as you wrote it.
           </p>
         </div>
         {account && <span className="pill pill-ok">Connected · {account}</span>}
@@ -217,6 +219,9 @@ export default function DarazPanel({
         <h3>
           <span className="step-num">3</span> Package
         </h3>
+        <p className="field-hint" style={{ margin: 0 }}>
+          Left empty, the AI estimates the packed size of one unit. Enter your own to override it.
+        </p>
         <div className="daraz-grid daraz-grid-4">
           <Field label="Weight (kg)" required>
             <input

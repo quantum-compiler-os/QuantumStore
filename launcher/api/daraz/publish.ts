@@ -1,6 +1,7 @@
 import { requireOwner } from '../_lib/auth.js';
 import { listingCollection } from '../_lib/db.js';
 import {
+  DarazError,
   createProduct,
   getAccessToken,
   getCategoryAttributes,
@@ -8,6 +9,9 @@ import {
 } from '../_lib/daraz.js';
 import {
   AUTO_ATTRIBUTES,
+  NO_BRAND,
+  isRejectedValue,
+  resolveBrand,
   specsToHtml,
   type DarazProductInput,
 } from '../_lib/darazCore.js';
@@ -87,12 +91,14 @@ export default route('POST', async (req, res) => {
   const sources = body.images.slice(0, MAX_IMAGES);
   const hosted = await Promise.all(sources.map((url) => migrateImage(url, accessToken)));
 
+  const requestedBrand = (body.brand || '').trim();
+  const brand = resolveBrand(requestedBrand, meta.find((a) => a.name === 'brand')?.options);
   const input: DarazProductInput = {
     categoryId,
     name: body.name.trim(),
     description: body.description.trim(),
     shortDescription: specsToHtml(body.specs || []) || undefined,
-    brand: (body.brand || '').trim(),
+    brand,
     sellerSku: body.sellerSku.trim(),
     quantity: Number(body.quantity),
     price: nums.price,
@@ -108,7 +114,16 @@ export default route('POST', async (req, res) => {
     attributes,
   };
 
-  const created = await createProduct(input, meta, accessToken);
+  // A brand Daraz does not know is refused by name; list the product as "No Brand" instead of failing the publish.
+  let created;
+  let brandReplaced = brand === NO_BRAND && requestedBrand !== '' && requestedBrand !== NO_BRAND;
+  try {
+    created = await createProduct(input, meta, accessToken);
+  } catch (err) {
+    if (!(err instanceof DarazError) || brand === NO_BRAND || !isRejectedValue(err.message, brand)) throw err;
+    created = await createProduct({ ...input, brand: NO_BRAND }, meta, accessToken);
+    brandReplaced = true;
+  }
 
   await (await listingCollection()).updateOne(
     { darazItemId: created.itemId },
@@ -125,5 +140,5 @@ export default route('POST', async (req, res) => {
     { upsert: true },
   );
 
-  res.status(201).json({ ok: true, ...created });
+  res.status(201).json({ ok: true, ...created, brandReplaced });
 });

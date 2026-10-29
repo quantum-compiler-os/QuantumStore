@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { signState, verifyState } from '../api/_lib/auth';
 import {
+  NO_BRAND,
+  isRejectedValue,
+  resolveBrand,
   buildImageMigrateXml,
   buildProductXml,
   describeDarazError,
@@ -142,5 +145,27 @@ describe('extractAuthCode', () => {
     expect(extractAuthCode('hello world')).toBeNull();
     expect(extractAuthCode('https://x.test/cb?error=denied')).toBeNull();
     expect(extractAuthCode('<script>alert(1)</script>')).toBeNull();
+  });
+});
+
+describe('brands', () => {
+  it('keeps a brand that is on the category list, using the list spelling', () => {
+    expect(resolveBrand('samsung', ['Apple', 'Samsung'])).toBe('Samsung');
+  });
+
+  it('falls back to No Brand for an unknown or empty brand', () => {
+    expect(resolveBrand('Zia ul Quran', ['Apple', 'Samsung'])).toBe(NO_BRAND);
+    expect(resolveBrand('  ', ['Apple'])).toBe(NO_BRAND);
+  });
+
+  it('passes the brand through when Daraz gave no list', () => {
+    expect(resolveBrand('Zia ul Quran')).toBe('Zia ul Quran');
+  });
+
+  it('recognises the dropdown error that names the brand', () => {
+    const message = 'E500: Create product failed — p-20000: C011:value not in the dropdown list Zia ul Quran[-1]';
+    expect(isRejectedValue(message, 'Zia ul Quran')).toBe(true);
+    expect(isRejectedValue(message, 'Samsung')).toBe(false);
+    expect(isRejectedValue(message, '')).toBe(false);
   });
 });

@@ -48,7 +48,13 @@ export type DarazPublishRequest = {
   attributes: Record<string, string>;
 };
 
-export type DarazPublishResult = { itemId: string; skuId: string; sellerSku: string };
+export type DarazPublishResult = {
+  itemId: string;
+  skuId: string;
+  sellerSku: string;
+  /** True when Daraz does not know the brand, so the item was listed as "No Brand". */
+  brandReplaced?: boolean;
+};
 
 export async function getDarazStatus() {
   const { data } = await launcherApi.get<DarazStatus & { ok: true }>('/daraz/status');
@@ -67,6 +73,29 @@ export async function suggestDarazCategories(input: { name: string; brand?: stri
     '/ai/suggest-category',
     input,
   );
+  return data;
+}
+
+export type PreparedListing = {
+  /** Set only when the server chose the category itself. */
+  category: CategorySuggestion | null;
+  /** Values for the category's required fields, including what the seller already typed. */
+  attributes: Record<string, string>;
+  package: { weight: number; length: number; width: number; height: number } | null;
+  /** Required fields nobody could fill (an ISBN the AI cannot know, or no AI key). */
+  missing: Array<{ name: string; label: string }>;
+};
+
+/** Lets the AI pick the category (if none) and fill the English texts, package size and required fields. */
+export async function prepareDarazListing(input: {
+  name: string;
+  brand: string;
+  description: string;
+  specs: Array<{ key: string; value: string }>;
+  categoryId: number | null;
+  attributes: Record<string, string>;
+}) {
+  const { data } = await launcherApi.post<PreparedListing>('/ai/prepare-listing', input);
   return data;
 }
 

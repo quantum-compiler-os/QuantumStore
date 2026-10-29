@@ -2,12 +2,25 @@ import { useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../api/client';
-import { getDarazAttributes, getDarazCategories, publishToDaraz, type DarazPublishResult } from '../../api/daraz';
+import {
+  getDarazAttributes,
+  getDarazCategories,
+  prepareDarazListing,
+  publishToDaraz,
+  type DarazPublishResult,
+} from '../../api/daraz';
 import type { Product } from '../../api/types';
 import { addCommission, commissionFor, groupOf } from '../../features/daraz/categoryGroups';
 import DarazAuthPrompt from '../../features/daraz/DarazAuthPrompt';
 import DarazPanel from '../../features/daraz/DarazPanel';
-import { initialDaraz, saveDefaults, slugSku, type DarazForm } from '../../features/daraz/darazForm';
+import {
+  applyPrepared,
+  darazPrice,
+  darazProblem,
+  initialDaraz,
+  slugSku,
+  type DarazForm,
+} from '../../features/daraz/darazForm';
 import { useDarazConnection } from '../../features/daraz/useDarazConnection';
 import { ensureStoreCategory } from '../../features/products/ensureCategory';
 import { ensurePublicImages } from '../../features/products/publicImages';
@@ -29,7 +42,7 @@ const STEP_TEXT: Record<StepState['status'], string> = {
   running: 'Working…',
   done: 'Published',
   failed: 'Failed',
-  skipped: 'Not selected',
+  skipped: 'Not connected',
 };
 
 function StepRow({ label, step }: { label: string; step: StepState }) {
@@ -45,11 +58,11 @@ export default function Publish() {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [daraz, setDaraz] = useState<DarazForm>(initialDaraz);
-  const [toStore, setToStore] = useState(true);
-  const [toDaraz, setToDaraz] = useState(true);
+  const [showDaraz, setShowDaraz] = useState(false);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState('');
   const [storeStep, setStoreStep] = useState<StepState>({ status: 'idle' });
   const [darazStep, setDarazStep] = useState<StepState>({ status: 'idle' });
   const [createdProduct, setCreatedProduct] = useState<Product | null>(null);
@@ -72,13 +85,13 @@ export default function Publish() {
     connect: connectDaraz,
     finishWithCode,
   } = useDarazConnection();
-  const darazReady = Boolean(status?.configured && status.connected);
-  const darazOn = toDaraz && darazReady;
+  // One publish goes to every place that is set up: Daraz is included as soon as it is connected.
+  const darazOn = Boolean(status?.configured && status.connected);
 
   const leavesQuery = useQuery({
     queryKey: ['daraz', 'categories'],
     queryFn: getDarazCategories,
-    enabled: darazOn,
+    enabled: darazOn && showDaraz,
     staleTime: 60 * 60 * 1000,
     retry: false,
   });
@@ -97,65 +110,78 @@ export default function Publish() {
   const showResult = storeStep.status !== 'idle' || darazStep.status !== 'idle';
   const canRetryDaraz = darazStep.status === 'failed' && !busy;
   const allDone =
-    (storeStep.status === 'done' || storeStep.status === 'skipped') &&
-    (darazStep.status === 'done' || darazStep.status === 'skipped');
+    storeStep.status === 'done' && (darazStep.status === 'done' || darazStep.status === 'skipped');
   const locked = busy || allDone;
 
   function validate(): string {
-    if (!toStore && !toDaraz) return 'Choose at least one place to publish to';
     if (!form.images.length) return 'At least one product image is required';
-    if (toDaraz && !darazReady) return 'Daraz is not connected — press Connect Daraz above, or untick Daraz';
     if (darazOn) {
-      if (daraz.categoryId === null) return 'Pick a Daraz category';
-      if (!(Number(daraz.price || autoPrice) > 0)) return 'Enter a price for Daraz';
       const quantity = daraz.quantity || form.stock;
       if (quantity === '' || !Number.isInteger(Number(quantity))) {
-        return 'Enter a stock quantity (it is required by Daraz)';
-      }
-      for (const [label, value] of [
-        ['weight', daraz.weight],
-        ['length', daraz.length],
-        ['width', daraz.width],
-        ['height', daraz.height],
-      ] as const) {
-        if (!(Number(value) > 0)) return `Enter the package ${label} for Daraz`;
+        return 'Enter a stock quantity — Daraz requires a number';
       }
     }
     return '';
   }
 
-  async function runDaraz(quantumProductId: string | undefined, imageUrls: string[]) {
+  async function runDaraz(quantumProductId: string | undefined, imageUrls: string[], plan: DarazForm) {
     setDarazStep({ status: 'running' });
-    saveDefaults(daraz);
     try {
       const result = await publishToDaraz({
         quantumProductId,
-        categoryId: daraz.categoryId as number,
+        categoryId: plan.categoryId as number,
         name: form.name,
         description: form.description,
         brand: form.brand,
-        sellerSku: daraz.sellerSku.trim() || autoSku,
-        quantity: Number(daraz.quantity || form.stock),
-        price: Number(daraz.price || autoPrice),
-        specialPrice: daraz.specialPrice ? Number(daraz.specialPrice) : null,
+        sellerSku: plan.sellerSku.trim() || autoSku,
+        quantity: Number(plan.quantity || form.stock),
+        price: darazPrice(plan, form.price),
+        specialPrice: plan.specialPrice ? Number(plan.specialPrice) : null,
         images: imageUrls,
         specs: parseSpecs(form.specsText),
         package: {
-          weight: Number(daraz.weight),
-          length: Number(daraz.length),
-          width: Number(daraz.width),
-          height: Number(daraz.height),
-          content: daraz.content.trim() || form.name,
+          weight: Number(plan.weight),
+          length: Number(plan.length),
+          width: Number(plan.width),
+          height: Number(plan.height),
+          content: plan.content.trim() || form.name,
         },
-        attributes: daraz.attributes,
+        attributes: plan.attributes,
       });
       setDarazResult(result);
-      setDarazStep({ status: 'done', message: `Item ${result.itemId}` });
+      setDarazStep({
+        status: 'done',
+        message: `Item ${result.itemId}${result.brandReplaced ? ` · brand "${form.brand}" is not on Daraz's list, so it is listed as No Brand` : ''}`,
+      });
       return true;
     } catch (err) {
       setDarazStep({ status: 'failed', message: getErrorMessage(err, 'Daraz rejected the listing') });
+      setShowDaraz(true); // whatever Daraz asked for is in that section
       return false;
     }
+  }
+
+  /** Lets the AI choose the category and fill everything else Daraz needs. Returns the plan, or '' + why not. */
+  async function prepareDaraz(): Promise<{ plan: DarazForm; problem: string }> {
+    setPhase('Writing the Daraz listing…');
+    let plan = daraz;
+    let aiProblem = '';
+    try {
+      const prepared = await prepareDarazListing({
+        name: form.name.trim(),
+        brand: form.brand.trim(),
+        description: form.description.trim(),
+        specs: parseSpecs(form.specsText),
+        categoryId: daraz.categoryId,
+        attributes: daraz.attributes,
+      });
+      plan = applyPrepared(daraz, prepared);
+      setDaraz(plan);
+    } catch (err) {
+      aiProblem = getErrorMessage(err, 'The AI could not prepare the Daraz listing');
+    }
+    const problem = darazProblem(plan, form.price, form.stock);
+    return { plan, problem: problem && aiProblem ? `${problem}. (${aiProblem})` : problem };
   }
 
   async function handlePublish(e: FormEvent) {
@@ -168,6 +194,22 @@ export default function Publish() {
     setError('');
     setBusy(true);
 
+    // The AI fills only what is still empty, so a retry after a Daraz failure keeps everything already in the form.
+    let plan = daraz;
+    if (darazOn) {
+      const prepared = await prepareDaraz();
+      plan = prepared.plan;
+      if (prepared.problem) {
+        // Nothing new has been created, so the seller can fix it and press the button again.
+        setError(prepared.problem);
+        setShowDaraz(true);
+        setPhase('');
+        setBusy(false);
+        return;
+      }
+    }
+
+    setPhase('Publishing…');
     // Daraz fetches images from the internet, so anything not on a public https address is uploaded again first.
     let images = form.images;
     let imageProblem = '';
@@ -193,14 +235,11 @@ export default function Publish() {
     }
 
     let productId = createdProduct?._id;
-    if (toStore && !createdProduct) {
+    if (!createdProduct) {
       setStoreStep({ status: 'running' });
       try {
-        // With Daraz on, the Daraz category group decides the store category, so it is only picked once.
-        const category =
-          darazOn && daraz.categoryId !== null
-            ? await ensureStoreCategory(groupOf(daraz.categoryLabel), categories)
-            : form.category;
+        // With Daraz on, the Daraz category group decides the store category.
+        const category = darazOn ? await ensureStoreCategory(groupOf(plan.categoryLabel), categories) : form.category;
         const { data } = await api.post<Product>('/products', buildProductPayload({ ...form, images, category }));
         setCreatedProduct(data);
         productId = data._id;
@@ -211,26 +250,27 @@ export default function Publish() {
         ]);
       } catch (err) {
         setStoreStep({ status: 'failed', message: getErrorMessage(err, 'Could not create the product') });
+        setPhase('');
         setBusy(false);
         return; // nothing was created anywhere, so Daraz is not attempted
       }
-    } else if (!toStore) {
-      setStoreStep({ status: 'skipped' });
     }
 
     if (darazOn && imageProblem) {
       setDarazStep({ status: 'failed', message: imageProblem });
     } else if (darazOn) {
-      await runDaraz(productId, images.map((i) => i.url));
+      await runDaraz(productId, images.map((i) => i.url), plan);
     } else {
-      setDarazStep({ status: 'skipped' });
+      setDarazStep({ status: 'skipped', message: 'connect Daraz to publish there too' });
     }
+    setPhase('');
     setBusy(false);
   }
 
   function startAnother() {
     setForm({ ...emptyForm, category: categories[0] || 'Laptops' });
-    setDaraz((prev) => ({ ...initialDaraz(), categoryId: prev.categoryId, categoryLabel: prev.categoryLabel }));
+    setDaraz(initialDaraz());
+    setShowDaraz(false);
     setStoreStep({ status: 'idle' });
     setDarazStep({ status: 'idle' });
     setCreatedProduct(null);
@@ -243,8 +283,8 @@ export default function Publish() {
     <div>
       <h1>Publish product</h1>
       <p className="muted">
-        Fill the form once. Images go to Google Drive through the QuantumStore backend, and the product is created on
-        QuantumStore and Daraz together.
+        Fill in the product once and press Publish. It is added to QuantumStore{darazOn ? ' and Daraz' : ''}; the AI
+        picks the Daraz category and writes everything else Daraz asks for.
       </p>
 
       <form className="admin-form" onSubmit={handlePublish}>
@@ -258,29 +298,7 @@ export default function Publish() {
             onUploadingChange={setUploading}
           />
 
-          <h2>Publish to</h2>
-          <div className="targets">
-            <label className="target-card">
-              <input type="checkbox" checked={toStore} onChange={(e) => setToStore(e.target.checked)} />
-              <span>
-                <strong>QuantumStore</strong>
-                <small>Your own shop. Images are stored in Google Drive.</small>
-              </span>
-            </label>
-            <label className="target-card">
-              <input type="checkbox" checked={toDaraz} onChange={(e) => setToDaraz(e.target.checked)} />
-              <span>
-                <strong>Daraz</strong>
-                <small>
-                  {darazReady
-                    ? `Listed on Seller Center${status?.account ? ` as ${status.account}` : ''}.`
-                    : 'Needs a one-time connection to your seller account.'}
-                </small>
-              </span>
-            </label>
-          </div>
-
-          {toDaraz && !darazReady && (
+          {!darazOn && (
             <div className="admin-quick" style={{ alignItems: 'center' }}>
               <p className="muted" style={{ margin: 0 }}>
                 {statusLoading
@@ -288,8 +306,8 @@ export default function Publish() {
                   : statusError
                     ? `Could not check the Daraz connection: ${getErrorMessage(statusError, 'unknown error')}`
                     : status && !status.configured
-                      ? 'Daraz app credentials are missing: set DARAZ_APP_KEY, DARAZ_APP_SECRET and DARAZ_REDIRECT_URI in launcher/.env and restart the Launcher.'
-                      : 'Daraz is not connected yet — connect it once and this box works from then on.'}
+                      ? 'Daraz app credentials are missing: set DARAZ_APP_KEY, DARAZ_APP_SECRET and DARAZ_REDIRECT_URI in launcher/.env and restart the Launcher. Until then products go to QuantumStore only.'
+                      : 'Daraz is not connected yet, so this publishes to QuantumStore only. Connect it once to publish to both.'}
               </p>
               {statusError && (
                 <button type="button" className="btn btn-ghost" onClick={() => refetchStatus()}>
@@ -303,7 +321,7 @@ export default function Publish() {
               )}
             </div>
           )}
-          {toDaraz && !darazReady && (
+          {!darazOn && (
             <DarazAuthPrompt
               authUrl={authUrl}
               waiting={waiting}
@@ -316,26 +334,41 @@ export default function Publish() {
           )}
 
           {darazOn && (
-            <DarazPanel
-              daraz={daraz}
-              setDaraz={setDaraz}
-              productName={form.name}
-              productBrand={form.brand}
-              productDescription={form.description}
-              aiConfigured={Boolean(status?.aiConfigured)}
-              storePrice={form.price}
-              storeStock={form.stock}
-              commission={commission}
-              autoPrice={autoPrice}
-              autoSku={autoSku}
-              account={status?.account}
-              storeCategory={toStore && daraz.categoryId !== null ? groupOf(daraz.categoryLabel) : ''}
-              leaves={leavesQuery.data}
-              leavesLoading={leavesQuery.isLoading}
-              leavesError={leavesQuery.error ? getErrorMessage(leavesQuery.error, 'Could not load Daraz categories') : ''}
-              attributes={attributesQuery.data}
-              attributesLoading={attributesQuery.isLoading}
-            />
+            <details
+              className="daraz-details"
+              open={showDaraz}
+              onToggle={(e) => setShowDaraz((e.currentTarget as HTMLDetailsElement).open)}
+            >
+              <summary>
+                <strong>Daraz details</strong>
+                <span className="muted">
+                  {' '}
+                  {daraz.categoryLabel
+                    ? `· ${daraz.categoryLabel}`
+                    : '· filled in automatically when you publish — open to review or change'}
+                </span>
+              </summary>
+              <DarazPanel
+                daraz={daraz}
+                setDaraz={setDaraz}
+                productName={form.name}
+                productBrand={form.brand}
+                productDescription={form.description}
+                aiConfigured={Boolean(status?.aiConfigured)}
+                storePrice={form.price}
+                storeStock={form.stock}
+                commission={commission}
+                autoPrice={autoPrice}
+                autoSku={autoSku}
+                account={status?.account}
+                storeCategory={daraz.categoryId !== null ? groupOf(daraz.categoryLabel) : ''}
+                leaves={leavesQuery.data}
+                leavesLoading={leavesQuery.isLoading}
+                leavesError={leavesQuery.error ? getErrorMessage(leavesQuery.error, 'Could not load Daraz categories') : ''}
+                attributes={attributesQuery.data}
+                attributesLoading={attributesQuery.isLoading}
+              />
+            </details>
           )}
         </fieldset>
 
@@ -360,7 +393,7 @@ export default function Publish() {
           <div className="admin-quick">
             {!allDone && (
               <button type="submit" className="btn btn-primary" disabled={busy || uploading}>
-                {busy ? 'Publishing…' : canRetryDaraz ? 'Retry Daraz' : 'Publish'}
+                {busy ? phase || 'Publishing…' : canRetryDaraz ? 'Retry Daraz' : 'Publish'}
               </button>
             )}
             {allDone && (
