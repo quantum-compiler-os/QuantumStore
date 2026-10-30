@@ -246,6 +246,72 @@ export function buildPriceQuantityXml(listing: { itemId: string; skuId: string }
   );
 }
 
+/** One live Daraz item as the sync sees it (the first SKU stands for the item, as everywhere else in the Launcher). */
+export type DarazItem = {
+  itemId: string;
+  skuId: string;
+  sellerSku: string;
+  name: string;
+  /** Daraz keeps HTML here; see htmlToText. */
+  description: string;
+  brand: string;
+  categoryId: number;
+  /** The selling price on Daraz, commission included. */
+  price: number;
+  quantity: number;
+  images: string[];
+};
+
+const text = (value: unknown) => (typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '');
+
+/**
+ * Reads the products of Daraz "GetProducts" into DarazItem rows. Deleted items and items without a SKU are left out.
+ * The response spells some fields in different cases (`SkuId`/`sku_id`), so each is looked up defensively.
+ */
+export function normalizeDarazProducts(products: unknown): DarazItem[] {
+  const out: DarazItem[] = [];
+  for (const raw of Array.isArray(products) ? (products as Array<Record<string, any>>) : []) {
+    const skus: Array<Record<string, any>> = Array.isArray(raw?.skus) ? raw.skus : [];
+    const sku = skus.find((s) => String(s?.Status ?? s?.status ?? '').toLowerCase() !== 'deleted');
+    const itemId = text(raw?.item_id);
+    if (!itemId || !sku) continue;
+    const attributes = (raw.attributes || {}) as Record<string, unknown>;
+    const images = [...(Array.isArray(sku.Images) ? sku.Images : []), ...(Array.isArray(raw.images) ? raw.images : [])]
+      .map(text)
+      .filter((url) => url.startsWith('http'));
+    out.push({
+      itemId,
+      skuId: text(sku.SkuId ?? sku.sku_id),
+      sellerSku: text(sku.SellerSku ?? sku.seller_sku),
+      name: text(attributes.name).trim(),
+      description: text(attributes.description) || text(attributes.short_description),
+      brand: text(attributes.brand).trim(),
+      categoryId: Number(raw.primary_category) || 0,
+      price: Number(sku.price) || 0,
+      quantity: Number(sku.quantity ?? sku.Available) || 0,
+      images: [...new Set(images)],
+    });
+  }
+  return out;
+}
+
+/** Daraz descriptions are HTML; the store shows plain text, so tags are dropped and the line breaks kept. */
+export function htmlToText(html: string) {
+  return html
+    .replace(/<\s*(br|\/p|\/li|\/div|\/h[1-6])\s*\/?>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&amp;/gi, '&')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 type RawCategory ={ category_id: number; name: string; leaf?: boolean; children?: RawCategory[] };
 
 /**

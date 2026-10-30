@@ -26,6 +26,7 @@ import {
   type SyncDeps,
   type SyncResult,
 } from '../../features/audionic/syncOne';
+import { fallbackCategory } from '../../features/audionic/categoryFallback';
 import CategoryPicker from '../../features/daraz/CategoryPicker';
 import { commissionFor, grossUpPrice, groupOf } from '../../features/daraz/categoryGroups';
 import { ensureStoreCategory } from '../../features/products/ensureCategory';
@@ -158,6 +159,16 @@ export default function Audionic() {
     });
   }
 
+  /** The built-in category for a type, once Daraz's category list is loaded. */
+  async function builtInCategory(type: string) {
+    try {
+      const list = leaves.data ?? (await leaves.refetch()).data;
+      return list ? fallbackCategory(type, list) : null;
+    } catch {
+      return null;
+    }
+  }
+
   // One type at a time (five at once trips Groq's rate limit); a failure is shown, not swallowed.
   async function suggestFor(typeNames: string[]) {
     if (!items) return;
@@ -178,11 +189,25 @@ export default function Audionic() {
           setTypeCategories((prev) => (prev[type] ? prev : { ...prev, [type]: { id: best.id, path: best.path } }));
           setSuggestErrors((prev) => ({ ...prev, [type]: '' }));
         } else {
-          setSuggestErrors((prev) => ({ ...prev, [type]: 'The AI found no matching category — choose one below.' }));
+          const fallback = await builtInCategory(type);
+          if (fallback) {
+            addLog(`Built-in choice: ${type} → ${fallback.path} (change it below if it is wrong)`);
+            setTypeCategories((prev) => (prev[type] ? prev : { ...prev, [type]: { id: fallback.id, path: fallback.path } }));
+          } else {
+            setSuggestErrors((prev) => ({ ...prev, [type]: 'The AI found no matching category — choose one below.' }));
+          }
         }
       } catch (err) {
         addLog(`AI: could not choose a category for ${type} — ${getErrorMessage(err, 'unknown error')}`, 'error');
-        setSuggestErrors((prev) => ({ ...prev, [type]: `${getErrorMessage(err, 'The AI could not suggest a category')} — choose one below.` }));
+        // While the AI is not answering, use the built-in choice for this type; it can still be changed below.
+        const fallback = await builtInCategory(type);
+        if (fallback) {
+          addLog(`Built-in choice: ${type} → ${fallback.path} (change it below if it is wrong)`);
+          setTypeCategories((prev) => (prev[type] ? prev : { ...prev, [type]: { id: fallback.id, path: fallback.path } }));
+          setSuggestErrors((prev) => ({ ...prev, [type]: '' }));
+        } else {
+          setSuggestErrors((prev) => ({ ...prev, [type]: `${getErrorMessage(err, 'The AI could not suggest a category')} — choose one below.` }));
+        }
       }
     }
     setSuggesting(false);

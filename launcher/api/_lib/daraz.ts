@@ -9,10 +9,12 @@ import {
   describeDarazError,
   flattenCategoryTree,
   normalizeAttributes,
+  normalizeDarazProducts,
   removeProductAttempts,
   signRequest,
   type DarazAttribute,
   type DarazCategoryLeaf,
+  type DarazItem,
   type DarazProductInput,
 } from './darazCore.js';
 
@@ -204,6 +206,25 @@ export async function setImages(skuId: string, hostedUrls: string[], accessToken
     accessToken,
     params: { payload: buildSetImagesXml(skuId, hostedUrls) },
   });
+}
+
+const PRODUCTS_PER_PAGE = 50;
+const MAX_PRODUCT_PAGES = 100;
+
+/** Every item in the seller's Daraz shop (all statuses except deleted), read a page at a time. */
+export async function listDarazProducts(accessToken: string) {
+  const items: DarazItem[] = [];
+  for (let page = 0; page < MAX_PRODUCT_PAGES; page += 1) {
+    const body = await call<{ data?: { products?: unknown[]; total_products?: number } }>('/products/get', {
+      accessToken,
+      params: { filter: 'all', limit: String(PRODUCTS_PER_PAGE), offset: String(page * PRODUCTS_PER_PAGE) },
+    });
+    const products = body.data?.products ?? [];
+    items.push(...normalizeDarazProducts(products));
+    const total = Number(body.data?.total_products) || 0;
+    if (products.length < PRODUCTS_PER_PAGE || (total && (page + 1) * PRODUCTS_PER_PAGE >= total)) return items;
+  }
+  throw new DarazError('Daraz returned more products than the Launcher is willing to read in one go');
 }
 
 /** Changes the price and/or stock shown on an existing listing. */

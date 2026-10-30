@@ -6,7 +6,7 @@ import { queryString, route } from '../_lib/http.js';
 export default route('GET', async (req, res) => {
   await requireOwner(req);
   if (queryString(req, 'all') === '1') {
-    const rows = await (await listingCollection()).find({}).sort({ createdAt: -1 }).limit(200).toArray();
+    const rows = await (await listingCollection()).find({}).sort({ createdAt: -1 }).limit(5000).toArray();
     res.status(200).json({
       ok: true,
       all: rows.map((row) => ({

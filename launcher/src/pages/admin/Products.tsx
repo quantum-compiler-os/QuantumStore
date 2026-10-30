@@ -2,18 +2,19 @@ import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../api/client';
-import { getDarazCategories, getDarazListings, removeFromDaraz, updateDarazImages, updateDarazOffer } from '../../api/daraz';
+import { getAllDarazListings, getDarazCategories, getDarazListings, removeFromDaraz, updateDarazImages, updateDarazOffer } from '../../api/daraz';
 import type { Product } from '../../api/types';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
 import DarazListingsCard from '../../features/daraz/DarazListingsCard';
 import { darazOfferFor, hasOffer } from '../../features/daraz/darazOffer';
 import ProductFormFields from '../../features/products/ProductFormFields';
+import { chipCounts, matchesChannel, matchesStock, type Channel, type StockFilter } from '../../features/products/channelFilter';
 import { rupeesToStored, storedToRupees } from '../../features/products/pricing';
 import { buildProductPayload, emptyForm, productToForm, type ProductForm } from '../../features/products/productForm';
 import { queryKeys } from '../../hooks/queryKeys';
 import { usePkrRate } from '../../hooks/usePkrRate';
-import { useAudionicProducts, useProductCategoryNames, useProductFacets, useProducts } from '../../hooks/useProducts';
+import { useAllProducts, useAudionicProducts, useProductCategoryNames, useProductFacets, useProducts } from '../../hooks/useProducts';
 import { getErrorMessage } from '../../utils/errors';
 
 const SORTS = [
@@ -35,7 +36,8 @@ export default function Products() {
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
-  const [stockFilter, setStockFilter] = useState<'all' | 'in' | 'out'>('all');
+  const [stockFilter, setStockFilter] = useState<StockFilter>('all');
+  const [channel, setChannel] = useState<Channel>('all');
   const [brandFilter, setBrandFilter] = useState('All');
   const [sort, setSort] = useState<(typeof SORTS)[number]['value']>('newest');
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(10);
@@ -44,22 +46,48 @@ export default function Products() {
   const [selected, setSelected] = useState<string[]>([]);
   const [removingImported, setRemovingImported] = useState(false);
 
-  const { data: productsData, isError } = useProducts({
+  const sharedFilters = {
     search: appliedSearch || undefined,
     category: categoryFilter !== 'All' ? categoryFilter : undefined,
-    inStock: stockFilter === 'all' ? undefined : stockFilter === 'in' ? 'true' : 'false',
     brands: brandFilter !== 'All' ? brandFilter : undefined,
-    page,
-    limit: pageSize,
-    sort,
-  });
+  };
+  const { data: productsData, isError } = useProducts(
+    {
+      ...sharedFilters,
+      inStock: stockFilter === 'all' ? undefined : stockFilter === 'in' ? 'true' : 'false',
+      page,
+      limit: pageSize,
+      sort,
+    },
+    { enabled: channel === 'all' },
+  );
   const { data: facets } = useProductFacets();
+
+  // The backend does not know what is on Daraz, so that filter and the chip totals work from the whole matching list.
+  // If Daraz is not set up the lookup just fails and the Daraz chips stay hidden.
+  const catalog = useAllProducts({ ...sharedFilters, sort });
+  const { data: allListings } = useQuery({
+    queryKey: ['daraz', 'listings', 'all'],
+    queryFn: getAllDarazListings,
+    retry: false,
+  });
+  const listedIds = new Set((allListings ?? []).map((listing) => listing.quantumProductId));
+  const counts = catalog.data && chipCounts(catalog.data, listedIds, { channel, stock: stockFilter });
+
   const { rate: pkrRate, ready: rateReady } = usePkrRate();
   const { data: categoryNames } = useProductCategoryNames();
-  const products = productsData?.items || [];
-  const pages = productsData?.pages || 1;
+  const channelMatches = (catalog.data ?? []).filter(
+    (product) => matchesChannel(product._id, channel, listedIds) && matchesStock(product.stock, stockFilter),
+  );
+  const pages = channel === 'all' ? productsData?.pages || 1 : Math.max(1, Math.ceil(channelMatches.length / pageSize));
+  // Deleting the last product of the last page leaves `page` past the end of this list.
+  const currentPage = channel === 'all' ? page : Math.min(page, pages);
+  const products =
+    channel === 'all'
+      ? productsData?.items || []
+      : channelMatches.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const categories = categoryNames?.length ? categoryNames : ['Laptops'];
-  const loadError = isError ? 'Failed to load products' : '';
+  const loadError = (channel === 'all' ? isError : catalog.isError) ? 'Failed to load products' : '';
 
   // Daraz is optional: if it is not configured the lookup just fails and no badges show.
   const pageIds = products.map((p) => p._id);
@@ -435,8 +463,31 @@ export default function Products() {
             }}
           >
             {label}
+            {counts && ` (${counts.stock[value]})`}
           </button>
         ))}
+        {allListings &&
+          (
+            [
+              ['all', 'All shops'],
+              ['daraz', 'On Daraz'],
+              ['store', 'QuantumStore only'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`chip ${channel === value ? 'active' : ''}`}
+              onClick={() => {
+                setChannel(value);
+                setPage(1);
+                setSelected([]);
+              }}
+            >
+              {label}
+              {counts && ` (${counts.channel[value]})`}
+            </button>
+          ))}
       </div>
 
       {editingId && (
@@ -591,17 +642,17 @@ export default function Products() {
       </div>
 
       <div className="load-more">
-        <button type="button" className="btn btn-ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+        <button type="button" className="btn btn-ghost" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>
           Prev
         </button>
         <span className="muted">
-          Page {page} / {pages}
+          Page {currentPage} / {pages}
         </span>
         <button
           type="button"
           className="btn btn-ghost"
-          disabled={page >= pages}
-          onClick={() => setPage((p) => p + 1)}
+          disabled={currentPage >= pages}
+          onClick={() => setPage(currentPage + 1)}
         >
           Next
         </button>

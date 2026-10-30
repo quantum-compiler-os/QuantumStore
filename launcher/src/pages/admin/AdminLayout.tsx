@@ -33,6 +33,14 @@ const ICON_PATHS: Record<string, ReactNode> = {
       <rect x="17.5" y="14" width="4" height="6" rx="1.5" />
     </>
   ),
+  sync: (
+    <>
+      <path d="M4 12a8 8 0 0 1 14-5.3L20 9" />
+      <path d="M20 4v5h-5" />
+      <path d="M20 12a8 8 0 0 1-14 5.3L4 15" />
+      <path d="M4 20v-5h5" />
+    </>
+  ),
   categories: <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />,
   orders: (
     <>
@@ -162,6 +170,7 @@ export default function AdminLayout() {
     { to: '/publish', label: 'Publish', icon: 'publish' },
     { to: '/products', label: 'Products', icon: 'products' },
     { to: '/audionic', label: 'Audionic', icon: 'audionic' },
+    { to: '/sync', label: 'Sync', icon: 'sync' },
     { to: '/categories', label: 'Categories', icon: 'categories' },
     { to: '/orders', label: 'Orders', icon: 'orders' },
     { to: '/questions', label: 'Q&A', icon: 'qa', badge: qaCount },

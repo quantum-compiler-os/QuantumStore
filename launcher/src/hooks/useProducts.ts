@@ -80,6 +80,22 @@ export function useProductCategoryNames() {
   });
 }
 
+/** Every product matching `params`, for filters the backend cannot do itself (it caps pages at 48, so walk them all). */
+export function useAllProducts(params: Omit<ProductListParams, 'page' | 'limit'>) {
+  return useQuery({
+    queryKey: ['products', 'all-pages', params],
+    queryFn: async () => {
+      const items: Product[] = [];
+      for (let page = 1; ; page += 1) {
+        const data = await listProducts({ ...params, limit: 48, page });
+        items.push(...(data.items || []));
+        if (page >= (data.pages || 1)) break;
+      }
+      return items;
+    },
+  });
+}
+
 export const AUDIONIC_BRAND = 'Audionic';
 
 /** Every Audionic product (the list endpoint caps pages at 48, so walk them all). */

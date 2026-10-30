@@ -55,6 +55,25 @@ Notes:
 
 Try it with two or three products first (untick the rest), check them on both sites, then sync the rest.
 
+## Sync QuantumStore and Daraz
+
+The **Sync** page (or `npm run sync` in a second terminal while the Launcher runs) compares both shops with the Launcher's own
+list of what it put on Daraz:
+
+| Found | What the sync does |
+|---|---|
+| On Daraz, not on QuantumStore | Creates it on QuantumStore (price = what you keep after the category commission, stock = Daraz quantity, images from Daraz) |
+| On QuantumStore, not on Daraz | Lists it on Daraz (AI picks the category, fills the fields; price gets the commission added; untracked stock = 10). Sold-out products are skipped. Needs public https images |
+| On both, not tracked | Only saves the pairing (matched by name) |
+| Tracked, deleted on QuantumStore | Removes the Daraz item - **only with removals switched on** |
+| Tracked, deleted on Daraz | Deletes the QuantumStore product - **only with removals switched on** |
+| Tracked, gone from both | Forgets the record |
+
+Removals are previewed first: `npm run sync` only does the additions, `npm run sync -- --apply` (or **Sync and remove** on the
+page, after a confirmation) also removes. `npm run sync -- --check` changes nothing. The run stops without touching anything if
+one side answers with an empty list while products are tracked, and refuses removals when most tracked products seem to have
+vanished at once. Audionic products are left to the Audionic page. Every step is logged on the page and in the terminal.
+
 ## Layout
 
 | Path | Purpose |
@@ -62,6 +81,7 @@ Try it with two or three products first (untick the rest), check them on both si
 | `src/` | React app (the admin pages moved here from the storefront) |
 | `src/pages/admin/Publish.tsx` | The publish form |
 | `src/features/products/` | Product form fields + payload builder shared by Publish and Edit |
+| `api/sync/*` | Serverless endpoints: scan (preview), run, log |
 | `api/daraz/*` | Serverless endpoints: connect, callback, exchange, status, categories, attributes, listings, publish, update-images, update-offer (price and stock), remove |
 | `api/audionic/*`, `api/_lib/audionic.ts` | Audionic catalog reader (pure, unit-tested) and the link table endpoints |
 | `src/pages/admin/Audionic.tsx`, `src/features/audionic/` | The Audionic sync page and its per-product sync |
