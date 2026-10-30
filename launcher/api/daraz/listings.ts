@@ -23,10 +23,12 @@ export default route('GET', async (req, res) => {
     .map((id) => id.trim())
     .filter(Boolean)
     .slice(0, 100);
-  const listings: Record<string, { itemId: string; sellerSku: string }> = {};
+  const listings: Record<string, { itemId: string; sellerSku: string; categoryId: number }> = {};
   if (ids.length) {
     const rows = await (await listingCollection()).find({ quantumProductId: { $in: ids } }).toArray();
-    for (const row of rows) listings[row.quantumProductId] = { itemId: row.darazItemId, sellerSku: row.sellerSku };
+    for (const row of rows) {
+      listings[row.quantumProductId] = { itemId: row.darazItemId, sellerSku: row.sellerSku, categoryId: row.categoryId };
+    }
   }
   res.status(200).json({ ok: true, listings });
 });

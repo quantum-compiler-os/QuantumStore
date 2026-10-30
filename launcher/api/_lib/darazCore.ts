@@ -232,6 +232,20 @@ export function buildSetImagesXml(skuId: string, urls: string[]) {
   );
 }
 
+/**
+ * Changes the price and/or stock of an existing item's SKU (Daraz "UpdatePriceQuantity"). Like SetImages it is
+ * addressed by item id + SKU id, never by seller SKU. A field left out is left as it is on Daraz.
+ */
+export function buildPriceQuantityXml(listing: { itemId: string; skuId: string }, change: { price?: number; quantity?: number }) {
+  const fields =
+    (change.price !== undefined ? tag('Price', String(change.price)) : '') +
+    (change.quantity !== undefined ? tag('Quantity', String(change.quantity)) : '');
+  return (
+    '<?xml version="1.0" encoding="UTF-8" ?>' +
+    `<Request><Product><Skus><Sku>${tag('ItemId', listing.itemId)}${tag('SkuId', listing.skuId)}${fields}</Sku></Skus></Product></Request>`
+  );
+}
+
 type RawCategory ={ category_id: number; name: string; leaf?: boolean; children?: RawCategory[] };
 
 /**

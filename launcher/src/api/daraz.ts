@@ -129,11 +129,17 @@ export async function getDarazAttributes(categoryId: number) {
 
 export async function getDarazListings(ids: string[]) {
   if (!ids.length) return {};
-  const { data } = await launcherApi.get<{ listings: Record<string, { itemId: string; sellerSku: string }> }>(
-    '/daraz/listings',
-    { params: { ids: ids.join(',') } },
-  );
+  const { data } = await launcherApi.get<{ listings: Record<string, DarazListing> }>('/daraz/listings', {
+    params: { ids: ids.join(',') },
+  });
   return data.listings;
+}
+
+export type DarazListing = { itemId: string; sellerSku: string; categoryId: number };
+
+/** Sends a new price and/or stock quantity (Daraz rupees, whole units) to a product's existing Daraz listing. */
+export async function updateDarazOffer(quantumProductId: string, change: { price?: number; quantity?: number }) {
+  await launcherApi.post('/daraz/update-offer', { quantumProductId, ...change });
 }
 
 /** Replaces the images on a product's existing Daraz listing. */

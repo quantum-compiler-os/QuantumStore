@@ -62,7 +62,7 @@ Try it with two or three products first (untick the rest), check them on both si
 | `src/` | React app (the admin pages moved here from the storefront) |
 | `src/pages/admin/Publish.tsx` | The publish form |
 | `src/features/products/` | Product form fields + payload builder shared by Publish and Edit |
-| `api/daraz/*` | Serverless endpoints: connect, callback, exchange, status, categories, attributes, listings, publish, update-images, remove |
+| `api/daraz/*` | Serverless endpoints: connect, callback, exchange, status, categories, attributes, listings, publish, update-images, update-offer (price and stock), remove |
 | `api/audionic/*`, `api/_lib/audionic.ts` | Audionic catalog reader (pure, unit-tested) and the link table endpoints |
 | `src/pages/admin/Audionic.tsx`, `src/features/audionic/` | The Audionic sync page and its per-product sync |
 | `api/_lib/darazCore.ts` | Pure helpers: request signing, XML builders, image URL rewrite (unit-tested) |

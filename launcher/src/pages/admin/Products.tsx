@@ -2,18 +2,26 @@ import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../api/client';
-import { getDarazListings, removeFromDaraz, updateDarazImages } from '../../api/daraz';
+import { getDarazCategories, getDarazListings, removeFromDaraz, updateDarazImages, updateDarazOffer } from '../../api/daraz';
 import type { Product } from '../../api/types';
 import { useConfirm } from '../../context/ConfirmContext';
 import { useToast } from '../../context/ToastContext';
 import DarazListingsCard from '../../features/daraz/DarazListingsCard';
+import { darazOfferFor, hasOffer } from '../../features/daraz/darazOffer';
 import ProductFormFields from '../../features/products/ProductFormFields';
-import { storedToRupees } from '../../features/products/pricing';
+import { rupeesToStored, storedToRupees } from '../../features/products/pricing';
 import { buildProductPayload, emptyForm, productToForm, type ProductForm } from '../../features/products/productForm';
 import { queryKeys } from '../../hooks/queryKeys';
 import { usePkrRate } from '../../hooks/usePkrRate';
-import { useAudionicProducts, useProductCategoryNames, useProducts } from '../../hooks/useProducts';
+import { useAudionicProducts, useProductCategoryNames, useProductFacets, useProducts } from '../../hooks/useProducts';
 import { getErrorMessage } from '../../utils/errors';
+
+const SORTS = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'price_asc', label: 'Price: low to high' },
+  { value: 'price_desc', label: 'Price: high to low' },
+] as const;
+const PAGE_SIZES = [10, 25, 48] as const;
 
 export default function Products() {
   const toast = useToast();
@@ -28,6 +36,10 @@ export default function Products() {
   const [appliedSearch, setAppliedSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [stockFilter, setStockFilter] = useState<'all' | 'in' | 'out'>('all');
+  const [brandFilter, setBrandFilter] = useState('All');
+  const [sort, setSort] = useState<(typeof SORTS)[number]['value']>('newest');
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZES)[number]>(10);
+  const [bulkStock, setBulkStock] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<string[]>([]);
   const [removingImported, setRemovingImported] = useState(false);
@@ -36,10 +48,12 @@ export default function Products() {
     search: appliedSearch || undefined,
     category: categoryFilter !== 'All' ? categoryFilter : undefined,
     inStock: stockFilter === 'all' ? undefined : stockFilter === 'in' ? 'true' : 'false',
+    brands: brandFilter !== 'All' ? brandFilter : undefined,
     page,
-    limit: 10,
-    sort: 'newest',
+    limit: pageSize,
+    sort,
   });
+  const { data: facets } = useProductFacets();
   const { rate: pkrRate, ready: rateReady } = usePkrRate();
   const { data: categoryNames } = useProductCategoryNames();
   const products = productsData?.items || [];
@@ -55,6 +69,39 @@ export default function Products() {
     enabled: pageIds.length > 0,
     retry: false,
   });
+
+  // Only needed to work out a listing's commission, so it is fetched once something on the page is on Daraz.
+  const hasListings = Object.keys(darazListings ?? {}).length > 0;
+  const { data: darazLeaves } = useQuery({
+    queryKey: ['daraz', 'categories'],
+    queryFn: getDarazCategories,
+    enabled: hasListings,
+    retry: false,
+    staleTime: 30 * 60_000,
+  });
+
+  /**
+   * Sends a changed price (rupees as typed here) and/or stock to the product's Daraz listing, if it has one.
+   * Throws Daraz's own message when it refuses; resolves with a note when part of the change could not be sent.
+   */
+  async function pushToDaraz(id: string, change: { rupees?: number; stock?: number | null }) {
+    const listing = darazListings?.[id];
+    if (!listing) return '';
+    const offer = darazOfferFor({ ...change, categoryId: listing.categoryId, leaves: darazLeaves });
+    if (hasOffer(offer)) await updateDarazOffer(id, { price: offer.price, quantity: offer.quantity });
+    return offer.note ?? '';
+  }
+
+  /** The same, for edits made in the table: the store change is already saved, so Daraz trouble is only reported. */
+  async function syncDaraz(id: string, change: { rupees?: number; stock?: number | null }) {
+    if (!darazListings?.[id]) return;
+    try {
+      const note = await pushToDaraz(id, change);
+      toast.success(note ? `Daraz updated, but ${note}` : 'Daraz updated too');
+    } catch (err) {
+      toast.error(`Saved on QuantumStore, but Daraz did not take it: ${getErrorMessage(err, 'Daraz refused the update')}`);
+    }
+  }
 
   async function invalidate() {
     await queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
@@ -112,17 +159,25 @@ export default function Products() {
       return;
     }
     try {
+      const original = products.find((product) => product._id === editingId);
       await api.put(`/products/${editingId}`, buildProductPayload(form, pkrRate));
       await invalidate();
       toast.success('Product saved');
       if (darazListings?.[editingId]) {
-        // The Daraz listing is separate, so the images are sent there as well. The form stays open if Daraz refuses,
-        // with the reason on screen, and pressing Update product again retries.
+        // The Daraz listing is separate, so the images, and the price or stock if they changed, are sent there as well.
+        // The form stays open if Daraz refuses, with the reason on screen, and pressing Update product again retries.
+        const before = original ? productToForm(original, pkrRate) : null;
         try {
           const sent = await updateDarazImages(editingId, form.images.map((image) => image.url));
           toast.success(`${sent.count} image${sent.count === 1 ? '' : 's'} sent to Daraz`);
+          const stock = form.stock.trim() === '' ? null : Number(form.stock);
+          const note = await pushToDaraz(editingId, {
+            rupees: !before || before.price !== form.price ? Number(form.price) : undefined,
+            stock: !before || before.stock !== form.stock ? stock : undefined,
+          });
+          if (note) toast.error(`Daraz: ${note}`);
         } catch (err) {
-          setError(`Saved on QuantumStore, but Daraz did not take the images: ${getErrorMessage(err, 'Daraz refused the images')}`);
+          setError(`Saved on QuantumStore, but Daraz did not take the update: ${getErrorMessage(err, 'Daraz refused the update')}`);
           return;
         }
       }
@@ -181,7 +236,45 @@ export default function Products() {
       await invalidate();
     } catch (err) {
       toast.error(getErrorMessage(err, 'Stock update failed'));
+      return;
     }
+    await syncDaraz(id, { stock });
+  }
+
+  async function savePrice(id: string, rupees: number) {
+    try {
+      await api.put(`/products/${id}`, { price: rupeesToStored(rupees, pkrRate) });
+      toast.success('Price updated');
+      await invalidate();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Price update failed'));
+      await invalidate();
+      return;
+    }
+    await syncDaraz(id, { rupees });
+  }
+
+  async function setSelectedStock() {
+    const raw = bulkStock.trim();
+    const stock = raw === '' ? null : Number(raw);
+    if (stock !== null && !(Number.isInteger(stock) && stock >= 0)) {
+      toast.error('Stock must be a whole number, 0 or more (blank = untracked)');
+      return;
+    }
+    const failed: string[] = [];
+    for (const id of selected) {
+      try {
+        await api.patch(`/products/${id}/stock`, { stock });
+        if (darazListings?.[id]) await pushToDaraz(id, { stock });
+      } catch (err) {
+        failed.push(getErrorMessage(err, 'failed'));
+      }
+    }
+    await invalidate();
+    if (failed.length) toast.error(`${failed.length} of ${selected.length} not fully updated: ${failed[0]}`);
+    else toast.success(`Stock set for ${selected.length} product${selected.length === 1 ? '' : 's'}`);
+    setSelected([]);
+    setBulkStock('');
   }
 
   function toggleSelect(id: string) {
@@ -216,7 +309,10 @@ export default function Products() {
   return (
     <div>
       <h1>Products</h1>
-      <p className="muted">Edit or remove catalog items. New products are created from Publish.</p>
+      <p className="muted">
+        Change a price or stock right in the table. Products listed on Daraz get the new price (with the commission added)
+        and stock there too.
+      </p>
 
       <div className="admin-toolbar">
         <span className="muted">
@@ -236,7 +332,7 @@ export default function Products() {
         </div>
       </div>
 
-      <div className="shop-top-row" style={{ marginBottom: '1rem' }}>
+      <div className="products-filters">
         <input
           className="input"
           placeholder="Search products…"
@@ -267,6 +363,54 @@ export default function Products() {
           {categories.map((category) => (
             <option key={category} value={category}>
               {category}
+            </option>
+          ))}
+        </select>
+        <select
+          className="input"
+          aria-label="Brand"
+          value={brandFilter}
+          onChange={(e) => {
+            setBrandFilter(e.target.value);
+            setPage(1);
+            setSelected([]);
+          }}
+        >
+          <option value="All">All brands</option>
+          {(facets?.brands ?? []).map((brand) => (
+            <option key={brand} value={brand}>
+              {brand}
+            </option>
+          ))}
+        </select>
+        <select
+          className="input"
+          aria-label="Sort"
+          value={sort}
+          onChange={(e) => {
+            setSort(e.target.value as typeof sort);
+            setPage(1);
+          }}
+        >
+          {SORTS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <select
+          className="input"
+          aria-label="Products per page"
+          value={pageSize}
+          onChange={(e) => {
+            setPageSize(Number(e.target.value) as typeof pageSize);
+            setPage(1);
+            setSelected([]);
+          }}
+        >
+          {PAGE_SIZES.map((size) => (
+            <option key={size} value={size}>
+              {size} per page
             </option>
           ))}
         </select>
@@ -317,7 +461,8 @@ export default function Products() {
           {darazListings?.[editingId] && (
             <p className="muted">
               This product is also listed on Daraz (item {darazListings[editingId].itemId}). Saving sends the images to
-              Daraz as well; other changes (name, price, description) are not sent — edit those in Daraz Seller Center.
+              Daraz, and the price (with the commission added) and stock if you changed them; other changes (name,
+              description) are not sent — edit those in Daraz Seller Center.
             </p>
           )}
         </form>
@@ -332,6 +477,18 @@ export default function Products() {
           </button>
           <button type="button" className="btn btn-ghost" onClick={() => bulk('unfeature')}>
             Unfeature
+          </button>
+          <input
+            className="input qty-input"
+            type="number"
+            min="0"
+            placeholder="Stock"
+            aria-label="Stock for the selected products"
+            value={bulkStock}
+            onChange={(e) => setBulkStock(e.target.value)}
+          />
+          <button type="button" className="btn btn-ghost" onClick={setSelectedStock}>
+            Set stock
           </button>
           <button type="button" className="btn btn-primary" onClick={() => bulk('delete')}>
             Delete selected ({selected.length})
@@ -381,7 +538,26 @@ export default function Products() {
                   </div>
                 </td>
                 <td data-label="Category">{product.category}</td>
-                <td data-label="Price">Rs {storedToRupees(product.price, pkrRate).toLocaleString()}</td>
+                <td data-label="Price">
+                  <input
+                    key={`${product._id}-${product.price}`}
+                    className="input qty-input price-input"
+                    type="number"
+                    min="1"
+                    step="any"
+                    aria-label={`Price in rupees for ${product.name}`}
+                    defaultValue={storedToRupees(product.price, pkrRate)}
+                    disabled={!rateReady}
+                    onBlur={(e) => {
+                      const next = Number(e.target.value);
+                      if (!(next > 0)) {
+                        e.target.value = String(storedToRupees(product.price, pkrRate));
+                      } else if (next !== storedToRupees(product.price, pkrRate)) {
+                        savePrice(product._id, next);
+                      }
+                    }}
+                  />
+                </td>
                 <td data-label="Stock">
                   <input
                     className="input qty-input"

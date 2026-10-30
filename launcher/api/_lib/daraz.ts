@@ -3,6 +3,7 @@ import { failureReason, withRetry } from './net.js';
 import { connectionCollection, type DarazConnection } from './db.js';
 import {
   buildImageMigrateXml,
+  buildPriceQuantityXml,
   buildProductXml,
   buildSetImagesXml,
   describeDarazError,
@@ -202,6 +203,19 @@ export async function setImages(skuId: string, hostedUrls: string[], accessToken
     method: 'POST',
     accessToken,
     params: { payload: buildSetImagesXml(skuId, hostedUrls) },
+  });
+}
+
+/** Changes the price and/or stock shown on an existing listing. */
+export async function updatePriceQuantity(
+  listing: { itemId: string; skuId: string },
+  change: { price?: number; quantity?: number },
+  accessToken: string,
+) {
+  await call('/product/price_quantity/update', {
+    method: 'POST',
+    accessToken,
+    params: { payload: buildPriceQuantityXml(listing, change) },
   });
 }
 
