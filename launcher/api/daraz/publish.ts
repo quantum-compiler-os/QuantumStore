@@ -10,12 +10,16 @@ import {
 import {
   AUTO_ATTRIBUTES,
   NO_BRAND,
-  isRejectedValue,
   resolveBrand,
   specsToHtml,
   type DarazProductInput,
 } from '../_lib/darazCore.js';
 import { HttpError, route } from '../_lib/http.js';
+import { descriptionProblem } from '../../shared/darazText.js';
+import { chatJson, groqConfigured } from '../_lib/groq.js';
+import { attributeRole, readRewriteAnswer, rewriteMessages } from '../_lib/listingAi.js';
+import { logLine } from '../_lib/log.js';
+import { NO_BRAND_NOTE, createWithFallbacks } from '../_lib/publishFallbacks.js';
 
 const MAX_IMAGES = 8;
 
@@ -50,6 +54,8 @@ function validate(body: PublishBody) {
   if (typeof body.description !== 'string' || body.description.trim().length < 10) {
     throw new HttpError(400, 'Description must be at least 10 characters');
   }
+  const tooShort = descriptionProblem(body.description);
+  if (tooShort) throw new HttpError(400, tooShort);
   if (typeof body.sellerSku !== 'string' || !/^[\w.\- ]{1,200}$/.test(body.sellerSku)) {
     throw new HttpError(400, 'SKU may only contain letters, numbers, spaces, dots, dashes and underscores');
   }
@@ -76,6 +82,9 @@ export default route('POST', async (req, res) => {
   const nums = validate(body);
   const categoryId = Number(body.categoryId);
 
+  logLine(
+    `daraz publish: "${body.name}" SKU ${body.sellerSku} category ${categoryId} price ${nums.price} qty ${body.quantity} images ${body.images.length}`,
+  );
   const accessToken = await getAccessToken();
   const meta = await getCategoryAttributes(categoryId);
 
@@ -84,12 +93,14 @@ export default route('POST', async (req, res) => {
   ) as Record<string, string>;
   const missing = meta.filter((a) => a.mandatory && !AUTO_ATTRIBUTES.has(a.name) && !attributes[a.name]);
   if (missing.length) {
+    logLine(`daraz publish: SKU ${body.sellerSku} stopped, required fields missing: ${missing.map((a) => `${a.label} (${a.name})`).join(', ')}`);
     throw new HttpError(400, `Fill in the required Daraz fields: ${missing.map((a) => a.label).join(', ')}`);
   }
 
   // Daraz hosts its own copies; migrate in parallel. The backend stores full-size images as JPEG, which Daraz accepts.
   const sources = body.images.slice(0, MAX_IMAGES);
   const hosted = await Promise.all(sources.map((url) => migrateImage(url, accessToken)));
+  logLine(`daraz publish: SKU ${body.sellerSku} ${hosted.length} image${hosted.length === 1 ? '' : 's'} hosted by Daraz`);
 
   const requestedBrand = (body.brand || '').trim();
   const brand = resolveBrand(requestedBrand, meta.find((a) => a.name === 'brand')?.options);
@@ -115,16 +126,33 @@ export default route('POST', async (req, res) => {
     attributes,
   };
 
-  // A brand Daraz does not know is refused by name; list the product as "No Brand" instead of failing the publish.
-  let created;
-  let brandReplaced = brand === NO_BRAND && requestedBrand !== '' && requestedBrand !== NO_BRAND;
-  try {
-    created = await createProduct(input, meta, accessToken);
-  } catch (err) {
-    if (!(err instanceof DarazError) || brand === NO_BRAND || !isRejectedValue(err.message, brand)) throw err;
-    created = await createProduct({ ...input, brand: NO_BRAND }, meta, accessToken);
-    brandReplaced = true;
-  }
+  // When Daraz refuses a brand or a keyword it can be worded around once or twice (see createWithFallbacks).
+  const initialNotes = brand === NO_BRAND && requestedBrand !== '' && requestedBrand !== NO_BRAND ? [NO_BRAND_NOTE] : [];
+  const roles = Object.fromEntries(meta.map((a) => [a.name, attributeRole(a)]));
+  const { created, changes } = await createWithFallbacks({
+    input,
+    attempt: (variant) => createProduct(variant, meta, accessToken),
+    isRefusal: (err): err is Error => err instanceof DarazError,
+    brandWords: [requestedBrand, 'Audionic'].filter((word, index, all) => word && all.indexOf(word) === index),
+    attributeRoles: roles,
+    rewrite: groqConfigured()
+      ? async (current) =>
+          readRewriteAnswer(
+            await chatJson(rewriteMessages({ name: current.name, description: current.description, specs: body.specs }, [requestedBrand]), {
+              maxTokens: 2048,
+              timeoutMs: 30_000,
+            }),
+            [requestedBrand],
+          )
+      : undefined,
+    log: (text) => logLine(`daraz publish: SKU ${body.sellerSku} ${text}`),
+  }).catch((err: unknown) => {
+    logLine(`daraz publish: SKU ${body.sellerSku} REFUSED by Daraz: ${err instanceof Error ? err.message : err}`);
+    throw err;
+  });
+  const notes = [...initialNotes, ...changes];
+  const brandReplaced = notes.includes(NO_BRAND_NOTE);
+  logLine(`daraz publish: SKU ${body.sellerSku} LISTED as item ${created.itemId}${notes.length ? ` (${notes.join('; ')})` : ''}`);
 
   await (await listingCollection()).updateOne(
     { darazItemId: created.itemId },
@@ -141,5 +169,5 @@ export default route('POST', async (req, res) => {
     { upsert: true },
   );
 
-  res.status(201).json({ ok: true, ...created, brandReplaced });
+  res.status(201).json({ ok: true, ...created, brandReplaced, changes: notes });
 });

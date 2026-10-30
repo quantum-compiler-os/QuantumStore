@@ -13,6 +13,8 @@ export type DarazForm = {
   width: string;
   height: string;
   content: string;
+  /** What the AI wrote for the description, kept for when the product's own text is under Daraz's minimum. */
+  aiDescription: string;
   attributes: Record<string, string>;
 };
 
@@ -30,6 +32,7 @@ export function initialDaraz(): DarazForm {
     width: '',
     height: '',
     content: '',
+    aiDescription: '',
     attributes: {},
   };
 }
@@ -48,7 +51,11 @@ const PACKAGE_FIELDS = ['weight', 'length', 'width', 'height'] as const;
 /** Merges the AI's work into the form. Anything the seller typed or picked is kept as it is. */
 export function applyPrepared(daraz: DarazForm, prepared: PreparedListing): DarazForm {
   const typed = Object.fromEntries(Object.entries(daraz.attributes).filter(([, v]) => v.trim()));
-  const next: DarazForm = { ...daraz, attributes: { ...prepared.attributes, ...typed } };
+  const next: DarazForm = {
+    ...daraz,
+    aiDescription: prepared.description || daraz.aiDescription,
+    attributes: { ...prepared.attributes, ...typed },
+  };
 
   if (daraz.categoryId === null && prepared.category) {
     next.categoryId = prepared.category.id;

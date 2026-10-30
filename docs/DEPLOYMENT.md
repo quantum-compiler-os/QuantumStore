@@ -86,7 +86,6 @@ Environment variables (see `backend/.env.example`):
 
 - `GET /api/cron/low-stock-digest` daily at 08:00 UTC
 - `GET /api/cron/abandoned-carts` daily at 09:00 UTC — evaluates carts against the `abandonedCartHours` setting (Launcher → Settings)
-- `GET /api/cron/audionic-sync` daily at 06:00 UTC — re-imports the Audionic catalog from audionic.co, priced Rs 100 below it (also on demand: Launcher → Products → **Sync Audionic now**)
 
 All require `Authorization: Bearer <CRON_SECRET>` (Vercel Cron sends this automatically when `CRON_SECRET` is set — ensure the secret matches; the routes also accept `x-cron-secret`).
 

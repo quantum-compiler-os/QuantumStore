@@ -12,7 +12,7 @@ import { storedToRupees } from '../../features/products/pricing';
 import { buildProductPayload, emptyForm, productToForm, type ProductForm } from '../../features/products/productForm';
 import { queryKeys } from '../../hooks/queryKeys';
 import { usePkrRate } from '../../hooks/usePkrRate';
-import { useProductCategoryNames, useProducts } from '../../hooks/useProducts';
+import { useAudionicProducts, useProductCategoryNames, useProducts } from '../../hooks/useProducts';
 import { getErrorMessage } from '../../utils/errors';
 
 export default function Products() {
@@ -30,7 +30,7 @@ export default function Products() {
   const [stockFilter, setStockFilter] = useState<'all' | 'in' | 'out'>('all');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<string[]>([]);
-  const [syncingAudionic, setSyncingAudionic] = useState(false);
+  const [removingImported, setRemovingImported] = useState(false);
 
   const { data: productsData, isError } = useProducts({
     search: appliedSearch || undefined,
@@ -60,19 +60,31 @@ export default function Products() {
     await queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
   }
 
-  async function syncAudionic() {
-    setSyncingAudionic(true);
+  // Products the old backend sync pulled in from audionic.co (they carry a `source`). Products made by the Launcher's
+  // Audionic page have the same brand but no `source`, so they are never offered for deletion here.
+  const { data: audionicProducts = [] } = useAudionicProducts();
+  const importedProducts = audionicProducts.filter((product) => product.source?.store === 'audionic');
+
+  async function removeImported() {
+    const ok = await confirm(
+      `This permanently deletes ${importedProducts.length} products that were imported automatically from audionic.co. ` +
+        'Products you published yourself are not touched.',
+      { title: 'Delete the imported Audionic products?', confirmLabel: 'Delete them', tone: 'danger' },
+    );
+    if (!ok) return;
+    setRemovingImported(true);
     try {
-      const { data } = await api.post<{ created: number; updated: number; markedSoldOut: number }>(
-        '/products/sync/audionic',
-      );
-      await invalidate();
-      const soldOut = data.markedSoldOut ? `, ${data.markedSoldOut} marked sold out` : '';
-      toast.success(`Audionic synced: ${data.created} new, ${data.updated} updated${soldOut}`);
+      const ids = importedProducts.map((product) => product._id);
+      for (let i = 0; i < ids.length; i += 100) {
+        await api.post('/products/bulk', { ids: ids.slice(i, i + 100), action: 'delete' });
+      }
+      await queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
+      toast.success(`${ids.length} imported products deleted`);
     } catch (err) {
-      toast.error(getErrorMessage(err, 'Audionic sync failed'));
+      toast.error(getErrorMessage(err, 'Could not delete the imported products'));
+      await queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
     } finally {
-      setSyncingAudionic(false);
+      setRemovingImported(false);
     }
   }
 
@@ -208,16 +220,19 @@ export default function Products() {
 
       <div className="admin-toolbar">
         <span className="muted">
-          Audionic items are imported from audionic.co at Rs 100 below its prices and refresh daily — manual edits
-          to them are overwritten.
+          {importedProducts.length > 0
+            ? `${importedProducts.length} products were imported automatically from audionic.co — they are not products you entered.`
+            : 'Edit or remove the products you published.'}
         </span>
         <div className="admin-quick">
           <Link to="/publish" className="btn btn-primary">
             Publish new product
           </Link>
-          <button type="button" className="btn btn-secondary" disabled={syncingAudionic} onClick={syncAudionic}>
-            {syncingAudionic ? 'Syncing Audionic…' : 'Sync Audionic now'}
-          </button>
+          {importedProducts.length > 0 && (
+            <button type="button" className="btn btn-secondary" disabled={removingImported} onClick={removeImported}>
+              {removingImported ? 'Deleting…' : `Delete the ${importedProducts.length} imported products`}
+            </button>
+          )}
         </div>
       </div>
 

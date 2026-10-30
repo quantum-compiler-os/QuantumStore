@@ -15,11 +15,21 @@ type Options = {
   maxTokens?: number;
   env?: Record<string, string | undefined>;
   fetchImpl?: typeof fetch;
+  /** Pause before the one retry after a 429; overridable so tests do not wait. */
+  rateLimitWaitMs?: number;
 };
+
+const MAX_RATE_LIMIT_WAIT_MS = 10_000;
+
+/** How long Groq asks us to wait (`retry-after`, seconds), within reason; `fallback` when it does not say. */
+export function rateLimitWait(response: Response, fallback: number) {
+  const seconds = Number(response.headers.get('retry-after'));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds * 1000, MAX_RATE_LIMIT_WAIT_MS) : fallback;
+}
 
 /** One Groq chat completion in JSON mode, returned as a parsed object. The key and model come from the environment. */
 export async function chatJson(messages: ChatMessage[], options: Options = {}) {
-  const { timeoutMs = 20_000, maxTokens = 1024, env = process.env, fetchImpl = fetch } = options;
+  const { timeoutMs = 20_000, maxTokens = 1024, env = process.env, fetchImpl = fetch, rateLimitWaitMs = 3_000 } = options;
   const apiKey = env.GROQ_API_KEY;
   if (!apiKey) throw new HttpError(404, 'AI suggestions are off: set GROQ_API_KEY in the Launcher environment');
 
@@ -34,10 +44,8 @@ export async function chatJson(messages: ChatMessage[], options: Options = {}) {
     ...(model.startsWith('openai/gpt-oss') ? { reasoning_effort: 'low' } : {}),
     response_format: { type: 'json_object' },
   });
-  let response: Response;
-  try {
-    // A dropped connection is retried once; a slow answer is not (that would double the wait).
-    response = await withRetry(
+  const send = () =>
+    withRetry(
       () =>
         fetchImpl(ENDPOINT, {
           method: 'POST',
@@ -45,8 +53,17 @@ export async function chatJson(messages: ChatMessage[], options: Options = {}) {
           body: payload,
           signal: AbortSignal.timeout(timeoutMs),
         }),
+      // A dropped connection is retried once; a slow answer is not (that would double the wait).
       { retries: 1, retryOn: (err) => failureReason(err) !== 'timed out' },
     );
+  let response: Response;
+  try {
+    response = await send();
+    if (response.status === 429) {
+      // Listing many products in a row can hit Groq's per-minute limit: wait as asked and try once more.
+      await new Promise((resolve) => setTimeout(resolve, rateLimitWait(response, rateLimitWaitMs)));
+      response = await send();
+    }
   } catch (err) {
     const reason = failureReason(err);
     throw new HttpError(

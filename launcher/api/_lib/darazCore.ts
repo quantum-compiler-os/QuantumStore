@@ -6,6 +6,7 @@
  * rendered as uppercase hex; product/image calls take their body as an XML `payload` field.
  */
 import { createHmac } from 'node:crypto';
+import { isBrandNotAuthorized } from '../../shared/darazText.js';
 
 export type DarazAttribute = {
   name: string;
@@ -56,6 +57,14 @@ export function resolveBrand(brand: string, options: string[] = []) {
 /** Daraz's "value is not in the dropdown" error names the offending value, e.g. `…Zia ul Quran[-1]`. */
 export function isRejectedValue(message: string, value: string) {
   return Boolean(value.trim()) && message.toLowerCase().includes(value.trim().toLowerCase());
+}
+
+/**
+ * A listing is retried once as "No Brand" when Daraz refuses the brand: either because it is not on Daraz's list
+ * (the error names it) or because the seller account is not authorized to sell it (Daraz's brand policy).
+ */
+export function shouldRetryAsNoBrand(message: string, brand: string) {
+  return brand !== NO_BRAND && (isBrandNotAuthorized(message) || isRejectedValue(message, brand));
 }
 
 /** Attributes the launcher fills from the core form, so they are never asked for twice. */

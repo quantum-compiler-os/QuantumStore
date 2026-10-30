@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { getErrorMessage } from '../utils/errors';
 
 export default function Login() {
-  const { login, logout, user, loading, isStaff, backendDown } = useAuth();
+  const { login, logout, user, loading, isStaff, backendDown, rateLimitedUntil, recheckBackend } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -40,10 +40,20 @@ export default function Login() {
         </p>
         <h1>Sign in</h1>
         <p className="muted">Publish products to Daraz and QuantumStore in one step.</p>
+        {rateLimitedUntil && (
+          <AuthAlert>
+            Too many sign-in attempts. The Launcher will try again by itself in about{' '}
+            {Math.max(1, Math.ceil((rateLimitedUntil - Date.now()) / 60000))} minute(s); there is nothing to press.
+          </AuthAlert>
+        )}
         {backendDown && (
           <AuthAlert>
-            Can&apos;t reach the QuantumStore backend. Check your internet connection and that{' '}
-            <code>QUANTUM_API_URL</code> in <code>launcher/.env</code> is the backend address, then reload this page.
+            Can&apos;t reach the QuantumStore backend. Trying again every few seconds; this message goes away by itself.
+            If it stays, check your internet connection and that <code>QUANTUM_API_URL</code> in{' '}
+            <code>launcher/.env</code> is the backend address.{' '}
+            <button type="button" className="text-btn" onClick={recheckBackend}>
+              Try now
+            </button>
           </AuthAlert>
         )}
         <form onSubmit={handleSubmit}>

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { signState, verifyState } from '../api/_lib/auth';
 import {
   NO_BRAND,
+  shouldRetryAsNoBrand,
   isRejectedValue,
   resolveBrand,
   buildImageMigrateXml,
@@ -220,5 +221,23 @@ describe('removeProductAttempts', () => {
     expect(removeProductAttempts({ itemId: '111', skuId: '', sellerSku: 'BOOK-1' })).toEqual([
       { seller_sku_list: '["BOOK-1"]' },
     ]);
+  });
+});
+
+describe('retrying as No Brand', () => {
+  const policy = 'E500: Create product failed — Product: Failed by Policy(R_5498925): Apologies ! You are not authorized to sell this brand.';
+  const dropdown = 'E500: Create product failed — C011: value not in the dropdown list Zia ul Quran[-1]';
+
+  it('retries when the seller is not authorized for the brand', () => {
+    expect(shouldRetryAsNoBrand(policy, 'Audionic')).toBe(true);
+  });
+
+  it('retries when the brand is not on Daraz\'s list (the error names it)', () => {
+    expect(shouldRetryAsNoBrand(dropdown, 'Zia ul Quran')).toBe(true);
+  });
+
+  it('never retries a listing that is already No Brand, or an unrelated refusal', () => {
+    expect(shouldRetryAsNoBrand(policy, NO_BRAND)).toBe(false);
+    expect(shouldRetryAsNoBrand('E500: package weight is invalid', 'Audionic')).toBe(false);
   });
 });

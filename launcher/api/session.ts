@@ -1,3 +1,4 @@
+import { getAutoSession } from './_lib/autoSession.js';
 import { HttpError, route } from './_lib/http.js';
 import { isLocalRequest } from './_lib/local.js';
 
@@ -14,19 +15,7 @@ export default route('GET', async (req, res) => {
   if (!email || !password) throw new HttpError(404, 'Auto sign-in is not configured');
 
   const api = (process.env.QUANTUM_API_URL || 'http://127.0.0.1:5000').replace(/\/$/, '');
-  let response: Response;
-  try {
-    response = await fetch(`${api}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-  } catch {
-    throw new HttpError(502, 'Could not reach the QuantumStore backend — is it running?');
-  }
-  if (!response.ok) throw new HttpError(401, 'The saved owner credentials were rejected by the backend');
-
-  const { token, user } = (await response.json()) as { token: string; user: unknown };
+  const { token, user } = await getAutoSession({ api, email, password });
   res.setHeader('Cache-Control', 'no-store');
   res.status(200).json({ ok: true, token, user });
 });

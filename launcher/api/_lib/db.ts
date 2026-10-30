@@ -39,3 +39,20 @@ export async function connectionCollection() {
 export async function listingCollection() {
   return (await getDb()).collection<Listing>('launcher_listings');
 }
+
+/** Remembers which Audionic product became which QuantumStore product (and Daraz item), so a re-sync never duplicates. */
+export type AudionicLink = {
+  audionicId: string;
+  quantumProductId: string;
+  /** Null while the item is only on QuantumStore (Daraz not connected, sold out, or Daraz refused it). */
+  darazItemId: string | null;
+  sellerSku: string;
+  /** Audionic's price (rupees) and availability when last synced, to tell what has changed since. */
+  sourcePkr: number;
+  available: boolean;
+  syncedAt: Date;
+};
+
+export async function audionicCollection() {
+  return (await getDb()).collection<AudionicLink>('launcher_audionic');
+}

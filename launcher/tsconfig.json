@@ -16,6 +16,6 @@
     "allowImportingTsExtensions": true,
     "types": ["vite/client", "node"]
   },
-  "include": ["src", "api", "tests"],
+  "include": ["src", "api", "shared", "tests"],
   "exclude": ["node_modules", "dist"]
 }

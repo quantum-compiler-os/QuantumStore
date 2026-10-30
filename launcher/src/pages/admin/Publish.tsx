@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { descriptionForDaraz } from '../../../shared/darazText';
 import api from '../../api/client';
 import {
   getDarazAttributes,
@@ -133,7 +134,11 @@ export default function Publish() {
         quantumProductId,
         categoryId: plan.categoryId as number,
         name: form.name,
-        description: form.description,
+        description: descriptionForDaraz({
+          description: form.description,
+          aiDescription: plan.aiDescription,
+          specs: parseSpecs(form.specsText),
+        }),
         brand: form.brand,
         sellerSku: plan.sellerSku.trim() || autoSku,
         quantity: Number(plan.quantity || form.stock),
@@ -153,7 +158,9 @@ export default function Publish() {
       setDarazResult(result);
       setDarazStep({
         status: 'done',
-        message: `Item ${result.itemId}${result.brandReplaced ? ` · brand "${form.brand}" is not on Daraz's list, so it is listed as No Brand` : ''}`,
+        message: `Item ${result.itemId}${
+          result.changes?.length ? ` · ${result.changes.join(' · ')}` : result.brandReplaced ? ' · listed as No Brand' : ''
+        }`,
       });
       return true;
     } catch (err) {

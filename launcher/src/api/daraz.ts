@@ -1,7 +1,8 @@
 import axios from 'axios';
+import type { KnownListing } from '../../shared/knownListing';
 
 /** The Launcher's own serverless functions (not the QuantumStore backend). */
-const launcherApi = axios.create({ baseURL: '/launcher-api' });
+export const launcherApi = axios.create({ baseURL: '/launcher-api' });
 
 launcherApi.interceptors.request.use((config) => {
   const token = localStorage.getItem('ql_token');
@@ -54,6 +55,8 @@ export type DarazPublishResult = {
   sellerSku: string;
   /** True when Daraz does not know the brand, so the item was listed as "No Brand". */
   brandReplaced?: boolean;
+  /** What had to be changed to get Daraz to accept it (No Brand, brand name removed, generic title…). */
+  changes?: string[];
 };
 
 export async function getDarazStatus() {
@@ -82,6 +85,8 @@ export type PreparedListing = {
   /** Values for the category's required fields, including what the seller already typed. */
   attributes: Record<string, string>;
   package: { weight: number; length: number; width: number; height: number } | null;
+  /** An English description written by the AI (empty without one); used when the product's own is too short for Daraz. */
+  description?: string;
   /** Required fields nobody could fill (an ISBN the AI cannot know, or no AI key). */
   missing: Array<{ name: string; label: string }>;
 };
@@ -94,6 +99,7 @@ export async function prepareDarazListing(input: {
   specs: Array<{ key: string; value: string }>;
   categoryId: number | null;
   attributes: Record<string, string>;
+  known?: KnownListing;
 }) {
   const { data } = await launcherApi.post<PreparedListing>('/ai/prepare-listing', input);
   return data;

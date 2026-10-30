@@ -31,7 +31,7 @@ The key stays on the server. Groq never receives the whole category tree: one ca
 
 ## Publish a product
 
-**Publish** has one form. Images upload to Google Drive through the backend (`POST /api/uploads`). Tick **QuantumStore** and/or **Daraz**, pick a Daraz category, fill the package size, and press **Publish**.
+**Publish** has one form and one button. Images upload to Google Drive through the backend (`POST /api/uploads`). The product goes to QuantumStore and, once Daraz is connected, to Daraz too; the AI fills the Daraz category and the other Daraz fields (see above), and everything can be reviewed under **Daraz details**.
 
 1. The product is created on QuantumStore (`POST /api/products`).
 2. Daraz re-hosts the images, then the product is created there. The mapping (`launcher_listings`) records the Daraz item id.
@@ -40,9 +40,20 @@ If Daraz rejects the listing, the QuantumStore product stays and the button beco
 
 Notes:
 
-- Daraz prices are rupees. The default Daraz price is the store price converted with the PKR rate from Settings; override it in the Daraz panel.
+- **Prices.** You type rupees. QuantumStore stores them divided by the PKR rate from Settings (the storefront multiplies by it again), so 8000 shows as Rs 8,000. Daraz gets the price that still leaves your price after Daraz's category commission: `daraz price = price ÷ (1 − commission%)`, rounded up (Rs 8,000 at 14.8% → Rs 9,390). A "Custom Daraz price" overrides it.
 - Daraz needs publicly reachable `https` image URLs. With `STORAGE_DRIVER=local` (relative `/uploads/…` paths) the Daraz step will refuse; use Google Drive or paste hosted URLs.
-- Later edits to price or stock on QuantumStore are not pushed to Daraz yet.
+- Editing a product that is on Daraz sends its images to Daraz as well; other edits are not pushed. Deleting it also removes the Daraz listing (leftovers can be removed from **Products → Listed on Daraz**).
+
+## Audionic sync
+
+**Audionic** (side menu) reads audionic.co's public catalog and lists the products on QuantumStore **and** Daraz. It runs only when you press the button, from the Launcher; the backend no longer has an Audionic sync or cron.
+
+- **Prices.** QuantumStore gets Audionic's price exactly (no deduction). Daraz gets it through the commission formula above.
+- **Categories.** The QuantumStore category is Audio or Accessories. For Daraz, one category is chosen per Audionic type (Earbuds, Speakers, Power Banks…): the AI suggests it, you can change it, and the choice is remembered in the browser.
+- **Daraz.** Available items go up with a quantity of 10 (Audionic does not say how many it has), one SKU per product at its lowest price, brand Audionic (falls back to "No Brand" if Daraz does not know it), and a deterministic SKU `AUD-<id>` so a repeat never lists it twice. Sold-out items are created on QuantumStore only.
+- **Re-sync.** What was synced is remembered in `launcher_audionic`. A later run creates new products and, when Audionic changed a price or availability, refreshes the QuantumStore product (price, stock, pictures). Daraz listings are not updated. Items Audionic dropped can be marked sold out with one button. A product that failed on Daraz keeps its QuantumStore half and is picked up again as "Not on Daraz".
+
+Try it with two or three products first (untick the rest), check them on both sites, then sync the rest.
 
 ## Layout
 
@@ -51,7 +62,9 @@ Notes:
 | `src/` | React app (the admin pages moved here from the storefront) |
 | `src/pages/admin/Publish.tsx` | The publish form |
 | `src/features/products/` | Product form fields + payload builder shared by Publish and Edit |
-| `api/daraz/*` | Serverless endpoints: connect, callback, exchange, status, categories, attributes, listings, publish |
+| `api/daraz/*` | Serverless endpoints: connect, callback, exchange, status, categories, attributes, listings, publish, update-images, remove |
+| `api/audionic/*`, `api/_lib/audionic.ts` | Audionic catalog reader (pure, unit-tested) and the link table endpoints |
+| `src/pages/admin/Audionic.tsx`, `src/features/audionic/` | The Audionic sync page and its per-product sync |
 | `api/_lib/darazCore.ts` | Pure helpers: request signing, XML builders, image URL rewrite (unit-tested) |
 | `api/_lib/daraz.ts` | Daraz HTTP client, token refresh |
 | `tests/` | `npm test` |

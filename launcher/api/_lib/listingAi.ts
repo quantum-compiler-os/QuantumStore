@@ -6,6 +6,8 @@
  */
 import { AUTO_ATTRIBUTES, type DarazAttribute } from './darazCore.js';
 import type { ChatMessage } from './categorySuggest.js';
+import { MIN_DESCRIPTION_WORDS, countWords, removeWords } from '../../shared/darazText.js';
+import type { KnownListing } from '../../shared/knownListing.js';
 
 export type ListingProduct = {
   name: string;
@@ -70,7 +72,7 @@ export function listingMessages(product: ListingProduct, attrs: DarazAttribute[]
       role: 'user',
       content:
         `Product: ${data}\n\n` +
-        'Reply as {"name": "product name in clear English", "description": "English description, 2-4 sentences, no HTML", ' +
+        'Reply as {"name": "product name in clear English", "description": "English description of 40 to 60 words, no HTML", ' +
         '"highlights": ["3 to 6 short English selling points"], ' +
         '"package": {"weightKg": number, "lengthCm": number, "widthCm": number, "heightCm": number}, ' +
         '"attributes": {"<field name>": "<value>"}}.\n' +
@@ -195,4 +197,59 @@ export function composeAttributes(
     else missing.push(attr);
   }
   return { values, missing };
+}
+
+export type Rewrite = { name: string; description: string; highlights: string[] };
+
+/** Asks for the same product described with plain generic words: no brand, company, trademark or licensed-technology names. */
+export function rewriteMessages(product: ListingProduct, avoid: string[]): ChatMessage[] {
+  const data = JSON.stringify({
+    name: product.name.slice(0, 200),
+    description: product.description.slice(0, 1500),
+    specs: (product.specs || []).slice(0, 15),
+  });
+  const avoidText = avoid.filter(Boolean).length ? ` Never use these words: ${avoid.filter(Boolean).join(', ')}.` : '';
+  return [
+    { role: 'system', content: SYSTEM },
+    {
+      role: 'user',
+      content:
+        `Product: ${data}\n\n` +
+        'A marketplace refused this listing because of restricted keywords. Describe the same product with plain generic words only: ' +
+        'no brand, company, trademark, model-line or licensed-technology names (such as Dolby or DTS), no claims you cannot see in the data.' +
+        `${avoidText}\n` +
+        'Reply as {"name": "generic product title, at most 100 characters", ' +
+        '"description": "plain text, 40 to 60 words", "highlights": ["3 to 6 short generic selling points"]}.',
+    },
+  ];
+}
+
+/** The rewrite, with the words to avoid removed again in case the model used them anyway. Null when it is unusable. */
+export function readRewriteAnswer(answer: Record<string, unknown>, avoid: string[]): Rewrite | null {
+  const tidy = (text: unknown, max: number) => removeWords(typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : '', avoid).slice(0, max);
+  const name = tidy(answer.name, 120);
+  const description = tidy(answer.description, 2000);
+  const highlights = Array.isArray(answer.highlights)
+    ? answer.highlights.map((h) => tidy(h, MAX_VALUE_LENGTH)).filter(Boolean).slice(0, MAX_HIGHLIGHTS)
+    : [];
+  return name.length >= 3 && countWords(description) >= MIN_DESCRIPTION_WORDS ? { name, description, highlights } : null;
+}
+
+/**
+ * The draft for a product that has a ready-made entry: its description, highlights and package size win; the AI's
+ * answer (when there was one) only supplies the category's other required fields. The name stays the product's own.
+ */
+export function draftFromKnown(known: KnownListing, ai: ListingDraft | null): ListingDraft {
+  return {
+    name: '',
+    description: known.description,
+    highlights: known.highlights,
+    package: {
+      weight: known.package.weightKg,
+      length: known.package.lengthCm,
+      width: known.package.widthCm,
+      height: known.package.heightCm,
+    },
+    attributes: ai?.attributes ?? {},
+  };
 }

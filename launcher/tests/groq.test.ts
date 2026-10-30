@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_MODEL, chatJson, groqConfigured } from '../api/_lib/groq';
+import { DEFAULT_MODEL, chatJson, groqConfigured, rateLimitWait } from '../api/_lib/groq';
 
 const messages = [{ role: 'user' as const, content: 'hi' }];
 
@@ -40,7 +40,7 @@ describe('chatJson', () => {
   it('turns Groq failures into clear errors', async () => {
     const env = { GROQ_API_KEY: 'k' };
     await expect(chatJson(messages, { env, fetchImpl: reply(401, {}) })).rejects.toThrow(/rejected the API key/);
-    await expect(chatJson(messages, { env, fetchImpl: reply(429, {}) })).rejects.toMatchObject({ status: 429 });
+    await expect(chatJson(messages, { env, fetchImpl: reply(429, {}), rateLimitWaitMs: 0 })).rejects.toMatchObject({ status: 429 });
     await expect(
       chatJson(messages, { env, fetchImpl: reply(400, { error: { message: 'model not found' } }) }),
     ).rejects.toThrow(/model not found/);
@@ -62,5 +62,33 @@ describe('groqConfigured', () => {
     expect(groqConfigured({ GROQ_API_KEY: 'k' })).toBe(true);
     expect(groqConfigured({ GROQ_API_KEY: '' })).toBe(false);
     expect(groqConfigured({})).toBe(false);
+  });
+});
+
+describe('rate limits', () => {
+  const ok = () => new Response(JSON.stringify({ choices: [{ message: { content: '{"a":1}' } }] }), { status: 200 });
+
+  it('waits once after a 429 and uses the second answer', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('{}', { status: 429 }))
+      .mockResolvedValueOnce(ok());
+    const result = await chatJson(messages, { env: { GROQ_API_KEY: 'k' }, fetchImpl, rateLimitWaitMs: 0 });
+    expect(result).toEqual({ a: 1 });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('still reports the limit when the retry is limited too', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{}', { status: 429 }));
+    await expect(chatJson(messages, { env: { GROQ_API_KEY: 'k' }, fetchImpl, rateLimitWaitMs: 0 })).rejects.toMatchObject({
+      status: 429,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('honours retry-after but never waits longer than ten seconds', () => {
+    expect(rateLimitWait(new Response('', { headers: { 'retry-after': '4' } }), 3000)).toBe(4000);
+    expect(rateLimitWait(new Response('', { headers: { 'retry-after': '600' } }), 3000)).toBe(10_000);
+    expect(rateLimitWait(new Response(''), 3000)).toBe(3000);
   });
 });

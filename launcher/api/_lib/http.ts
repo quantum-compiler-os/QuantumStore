@@ -37,9 +37,10 @@ export function route(method: 'GET' | 'POST', fn: (req: Req, res: Res) => Promis
     } catch (err) {
       const status = err instanceof HttpError ? err.status : 500;
       const message = err instanceof Error ? err.message : 'Unexpected error';
-      // Expected failures (backend down, Daraz unreachable) get one line; real crashes keep their stack.
-      if (err instanceof HttpError && status >= 500) console.warn(`[launcher-api] ${status} ${message}`);
-      else if (status >= 500) console.error('[launcher-api]', err);
+      // Expected failures (backend down, Daraz refusing something) get one line; real crashes keep their stack.
+      const where = `${req.method} ${String(req.url || '').split('?')[0]}`;
+      if (err instanceof HttpError) console.warn(`[launcher-api] ${where} -> ${status} ${message}`);
+      else console.error(`[launcher-api] ${where} crashed:`, err);
       if (!res.headersSent) res.status(status).json({ ok: false, message });
     }
   };

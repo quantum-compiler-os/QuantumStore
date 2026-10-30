@@ -11,6 +11,7 @@ const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'));
 const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
 const Publish = lazy(() => import('./pages/admin/Publish'));
 const Products = lazy(() => import('./pages/admin/Products'));
+const Audionic = lazy(() => import('./pages/admin/Audionic'));
 const Categories = lazy(() => import('./features/admin/CategoriesAdmin'));
 const Orders = lazy(() => import('./pages/admin/Orders'));
 const Coupons = lazy(() => import('./pages/admin/Coupons'));
@@ -44,6 +45,7 @@ export default function App() {
                       <Route index element={<Dashboard />} />
                       <Route path="publish" element={<Publish />} />
                       <Route path="products" element={<Products />} />
+                      <Route path="audionic" element={<Audionic />} />
                       <Route path="categories" element={<Categories />} />
                       <Route path="orders" element={<Orders />} />
                       <Route path="questions" element={<Questions />} />
