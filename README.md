@@ -8,6 +8,7 @@ MERN ecommerce for **Quantum Logics Limited** — production-oriented storefront
 - **Express 5 + TypeScript** — layered API (`routes` → `controllers` → `services` → `models`), Vercel serverless-ready
 - **React 19 (Vite) + TypeScript** — customer storefront (`frontend/`) and staff Launcher (`launcher/`), TanStack Query
 - **Stripe** — card checkout; **webhook is the source of truth** for payment status
+- **JazzCash** — PKR hosted checkout; the signed IPN is the source of truth for payment status
 - **Resend or SMTP** — transactional email
 - **Google Drive** — product images (required in production / Vercel)
 - **Vitest + Playwright** — API and end-to-end tests
@@ -48,7 +49,7 @@ npm run seed         # reseed database
 ## Production readiness highlights
 
 - Zod env validation at API startup; weak JWT / memory DB blocked in production
-- Authenticated/owned Stripe checkout sessions; client cannot mark orders paid
+- Authenticated/owned Stripe and JazzCash payments; client cannot mark orders paid (JazzCash callbacks are HMAC-verified and amount-checked)
 - CORS allowlist, payment rate limits, structured logging (pino), optional Sentry
 - Image storage abstraction (`STORAGE_DRIVER=local|gdrive`)
 - Legal pages: `/privacy`, `/terms`, `/returns`

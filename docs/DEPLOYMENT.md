@@ -76,6 +76,7 @@ Environment variables (see `backend/.env.example`):
 | `CORS_ORIGINS` | Comma-separated allowlist. **Required once the Launcher is deployed**: set it to the storefront origin *and* the Launcher origin (it replaces the `CLIENT_URL` default) |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Seed once via `npm run seed` against Atlas |
 | `STRIPE_*` | Secret, publishable, webhook secret |
+| `JAZZCASH_*` / `API_URL` | Merchant ID, password, integrity salt (all three together), `JAZZCASH_ENV` (`sandbox`/`live`), and the public API origin |
 | `RESEND_API_KEY` or `SMTP_*` | Transactional email |
 | `STORAGE_DRIVER` | Must be `gdrive` |
 | `GOOGLE_DRIVE_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` / `_FOLDER_ID` | See section 2 (`npm run drive:auth`) |
@@ -147,15 +148,24 @@ Point Stripe to:
 
 Events: `checkout.session.completed`. The webhook is the **only** writer of paid status.
 
-## 6. Health & uptime
+## 6. JazzCash
+
+Add the three `JAZZCASH_*` credentials from the JazzCash merchant portal and set `API_URL` to the API's public origin. Then register these in the portal:
+
+- **Return URL** (the customer's browser is redirected here after paying; sent with every payment): `https://<your-api-host>/api/payments/jazzcash/return`
+- **IPN URL** (JazzCash's server-to-server notification): `https://<your-api-host>/api/payments/jazzcash/ipn`
+
+Both are signed with the integrity salt, checked against the amount stored on the order, and mark the order paid at most once. `JAZZCASH_ENV` defaults to `sandbox`; set `live` only with production credentials. The checkout offers JazzCash once the three credentials are present.
+
+## 7. Health & uptime
 
 Monitor `GET /api/health`. Pair with Sentry (`SENTRY_DSN`) and structured logs (pino + `x-request-id`).
 
-## 7. Legal pages
+## 8. Legal pages
 
 Storefront routes `/privacy`, `/terms`, and `/returns` must remain published before taking live payments.
 
-## 8. Local development
+## 9. Local development
 
 ```bash
 npm run install:all
