@@ -36,7 +36,7 @@ export async function prepareListing(body: PrepareBody) {
   body = body || {};
   const name = typeof body.name === 'string' ? body.name.trim() : '';
   const description = typeof body.description === 'string' ? body.description.trim() : '';
-  if (name.length < 2 || name.length > 200) throw new HttpError(400, 'Enter the product name first');
+  if (name.length < 2) throw new HttpError(400, 'Enter the product name first');
   const product: ListingProduct = {
     name,
     brand: typeof body.brand === 'string' ? body.brand.trim().slice(0, 100) : '',

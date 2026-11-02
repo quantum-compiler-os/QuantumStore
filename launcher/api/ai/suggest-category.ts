@@ -8,7 +8,7 @@ export default route('POST', async (req, res) => {
 
   const body = req.body || {};
   const name = typeof body.name === 'string' ? body.name.trim() : '';
-  if (name.length < 2 || name.length > 200) throw new HttpError(400, 'Enter the product name first');
+  if (name.length < 2) throw new HttpError(400, 'Enter the product name first');
   const product = {
     name,
     brand: typeof body.brand === 'string' ? body.brand.trim().slice(0, 100) : '',

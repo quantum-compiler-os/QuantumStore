@@ -3,9 +3,11 @@ import { buildProductXml, normalizeAttributes, richTextToHtml } from '../api/_li
 import {
   attributeRole,
   composeAttributes,
+  descriptionMessages,
   listingMessages,
   randomIsbn13,
   randomIssn,
+  readDescriptionAnswer,
   readListingAnswer,
   requiredAttributes,
 } from '../api/_lib/listingAi';
@@ -133,6 +135,36 @@ describe('composeAttributes', () => {
     expect(values.isbn).toMatch(/^978\d{10}$/);
     expect(missing.map((a) => a.name)).toEqual(['age_group']);
   });
+
+  describe('a required Model nobody could fill', () => {
+    const modelField = (options: string[] = []) =>
+      normalizeAttributes([{ name: 'model', label: 'Model', is_mandatory: 1, options: options.map((name) => ({ name })) }]);
+
+    it('is listed as generic when the field is free text', () => {
+      expect(composeAttributes(modelField(), product, null)).toEqual({ values: { model: 'Generic' }, missing: [] });
+    });
+
+    it('takes the option meaning "no particular model" from a fixed list', () => {
+      const { values } = composeAttributes(modelField(['iPhone 15', 'Other', 'Universal Fit']), product, null);
+      expect(values).toEqual({ model: 'Universal Fit' });
+    });
+
+    it('is left for the seller when the list has no such option', () => {
+      const { values, missing } = composeAttributes(modelField(['iPhone 15', 'Galaxy S24']), product, null);
+      expect(values).toEqual({});
+      expect(missing.map((a) => a.name)).toEqual(['model']);
+    });
+
+    it('keeps a model the AI did give', () => {
+      const draft = readListingAnswer({ attributes: { model: 'SP-100' } }, modelField());
+      expect(composeAttributes(modelField(), product, draft).values).toEqual({ model: 'SP-100' });
+    });
+
+    it('does not touch fields that merely mention a model', () => {
+      const other = normalizeAttributes([{ name: 'compatible_models', label: 'Compatible Models', is_mandatory: 1 }]);
+      expect(composeAttributes(other, product, null).missing.map((a) => a.name)).toEqual(['compatible_models']);
+    });
+  });
 });
 
 describe('generated identifiers', () => {
@@ -250,5 +282,25 @@ describe('darazPrice', () => {
   it('lets a custom Daraz price win and ignores a bad price', () => {
     expect(darazPrice({ ...initialDaraz(), price: '8500' }, '8000')).toBe(8500);
     expect(darazPrice(initialDaraz(), '')).toBe(0);
+  });
+});
+
+describe('the store description', () => {
+  it('sends only the product data and tells the model not to invent facts', () => {
+    const [, user] = descriptionMessages({ name: 'Hair Wax Stick', brand: 'no brand', specs: [{ key: 'Weight', value: '75g' }] });
+    expect(user.content).toContain('Hair Wax Stick');
+    expect(user.content).toContain('75g');
+    expect(user.content).toContain('Never invent');
+  });
+
+  it('keeps a long enough answer as plain text', () => {
+    const body = Array.from({ length: 40 }, (_, i) => `word${i}`).join(' ');
+    expect(readDescriptionAnswer({ description: `## **Title**\n\n${body}` })).toBe(`Title ${body}`);
+  });
+
+  it('refuses an answer too short for Daraz, or not text at all', () => {
+    expect(readDescriptionAnswer({ description: 'Too short.' })).toBe('');
+    expect(readDescriptionAnswer({ description: 42 })).toBe('');
+    expect(readDescriptionAnswer({})).toBe('');
   });
 });

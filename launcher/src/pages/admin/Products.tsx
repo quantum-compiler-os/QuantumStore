@@ -497,7 +497,6 @@ export default function Products() {
             form={form}
             setForm={setForm}
             categories={categories}
-            onError={setError}
             onUploadingChange={setUploading}
           />
           {error && <p className="form-error">{error}</p>}
@@ -578,7 +577,7 @@ export default function Products() {
                 </td>
                 <td data-label="Product">
                   <div className="table-product">
-                    <img src={product.image} alt="" width="48" height="48" loading="lazy" />
+                    <img src={product.image} alt="" width="48" height="48" loading="lazy" referrerPolicy="no-referrer" />
                     <div>
                       <strong>{product.name}</strong>
                       <p className="muted">

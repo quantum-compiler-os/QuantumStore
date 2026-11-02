@@ -79,6 +79,16 @@ export async function suggestDarazCategories(input: { name: string; brand?: stri
   return data;
 }
 
+/** Lets the AI write the store description from the product's name, brand and specs. */
+export async function writeProductDescription(input: {
+  name: string;
+  brand: string;
+  specs: Array<{ key: string; value: string }>;
+}) {
+  const { data } = await launcherApi.post<{ description: string }>('/ai/write-description', input);
+  return data.description;
+}
+
 export type PreparedListing = {
   /** Set only when the server chose the category itself. */
   category: CategorySuggestion | null;

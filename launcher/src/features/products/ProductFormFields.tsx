@@ -1,11 +1,14 @@
-import { useRef, useState, type ChangeEvent, type Dispatch, type DragEvent, type SetStateAction } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type Dispatch, type DragEvent, type SetStateAction } from 'react';
 import api from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import { useCreateCategory } from '../../hooks/useCategories';
 import { getErrorMessage } from '../../utils/errors';
+import { enlargeIfSmall, pastedImages } from './imageSize';
 import type { ProductForm } from './productForm';
 
 const NEW_CATEGORY_VALUE = '__new_category__';
+// The backend runs on Vercel, which refuses request bodies over 4.5 MB before they reach it.
+const MAX_UPLOAD_MB = 4;
 
 type Props = {
   form: ProductForm;
@@ -13,7 +16,9 @@ type Props = {
   categories: string[];
   /** Hide the store category when something else (the Daraz category) decides it. */
   hideCategory?: boolean;
-  onError: (message: string) => void;
+  /** Hide the stock and description when the page sets them itself. */
+  hideStock?: boolean;
+  hideDescription?: boolean;
   onUploadingChange?: (uploading: boolean) => void;
 };
 
@@ -23,22 +28,43 @@ export default function ProductFormFields({
   setForm,
   categories,
   hideCategory = false,
-  onError,
+  hideStock = false,
+  hideDescription = false,
   onUploadingChange,
 }: Props) {
   const toast = useToast();
   const createCategoryMut = useCreateCategory();
   const [uploading, setUploading] = useState(false);
   const [imageUrlInput, setImageUrlInput] = useState('');
+  const [imageError, setImageError] = useState('');
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [categoryError, setCategoryError] = useState('');
   const dragIndexRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingUploads = useRef(0);
 
-  function setBusy(value: boolean) {
-    setUploading(value);
-    onUploadingChange?.(value);
+  // Several screenshots can be pasted in a row, so the form stays busy until the last upload ends.
+  function trackUpload(change: 1 | -1) {
+    pendingUploads.current += change;
+    const busy = pendingUploads.current > 0;
+    setUploading(busy);
+    onUploadingChange?.(busy);
   }
+
+  useEffect(() => {
+    function handlePaste(e: ClipboardEvent) {
+      // The file input is disabled along with the form while it is locked.
+      if (!e.clipboardData || !fileInputRef.current || fileInputRef.current.matches(':disabled')) return;
+      const inTextField = e.target instanceof Element && Boolean(e.target.closest('input, textarea, [contenteditable]'));
+      const images = pastedImages(Array.from(e.clipboardData.files), e.clipboardData.getData('text/plain'), inTextField);
+      if (!images.length) return;
+      e.preventDefault();
+      uploadFiles(images);
+    }
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  });
 
   async function handleAddCategory() {
     const name = newCategoryName.trim();
@@ -58,16 +84,26 @@ export default function ProductFormFields({
     }
   }
 
-  async function handleUpload(e: ChangeEvent<HTMLInputElement>) {
+  function handleUpload(e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    setBusy(true);
+    e.target.value = '';
+    if (files.length) uploadFiles(files);
+  }
+
+  async function uploadFiles(files: File[]) {
+    const tooLarge = files.find((file) => file.size > MAX_UPLOAD_MB * 1024 * 1024);
+    if (tooLarge) {
+      setImageError(`${tooLarge.name} is larger than ${MAX_UPLOAD_MB} MB — choose a smaller image`);
+      return;
+    }
+    setImageError('');
+    trackUpload(1);
     try {
       // Goes through the backend's POST /api/uploads, which stores them in Google Drive.
       const uploaded = await Promise.all(
         files.map(async (file) => {
           const body = new FormData();
-          body.append('image', file);
+          body.append('image', await enlargeIfSmall(file));
           const { data } = await api.post<{ url: string; thumbnail?: string }>('/uploads', body, {
             headers: { 'Content-Type': 'multipart/form-data' },
           });
@@ -77,16 +113,16 @@ export default function ProductFormFields({
       setForm((prev) => ({ ...prev, images: [...prev.images, ...uploaded] }));
       toast.success(uploaded.length > 1 ? `${uploaded.length} images uploaded` : 'Image uploaded');
     } catch (err) {
-      onError(getErrorMessage(err, 'Image upload failed'));
+      setImageError(getErrorMessage(err, 'Image upload failed'));
     } finally {
-      setBusy(false);
-      e.target.value = '';
+      trackUpload(-1);
     }
   }
 
   function addImageUrl() {
     const url = imageUrlInput.trim();
     if (!url) return;
+    setImageError('');
     setForm((prev) => ({ ...prev, images: [...prev.images, { url, thumbnail: url }] }));
     setImageUrlInput('');
   }
@@ -146,17 +182,19 @@ export default function ProductFormFields({
             onChange={(e) => setForm({ ...form, price: e.target.value })}
           />
         </label>
-        <label>
-          Stock
-          <input
-            className="input"
-            type="number"
-            min="0"
-            placeholder="N/A (always in stock)"
-            value={form.stock}
-            onChange={(e) => setForm({ ...form, stock: e.target.value })}
-          />
-        </label>
+        {!hideStock && (
+          <label>
+            Stock
+            <input
+              className="input"
+              type="number"
+              min="0"
+              placeholder="N/A (always in stock)"
+              value={form.stock}
+              onChange={(e) => setForm({ ...form, stock: e.target.value })}
+            />
+          </label>
+        )}
         {!hideCategory && (
           <label>
             Category
@@ -196,6 +234,7 @@ export default function ProductFormFields({
           Upload images
           <div className="file-drop">
             <input
+              ref={fileInputRef}
               className="file-drop-input"
               type="file"
               accept="image/*"
@@ -211,7 +250,7 @@ export default function ProductFormFields({
               </svg>
               Choose files
             </span>
-            {uploading && <span className="file-drop-name">Uploading…</span>}
+            <span className="file-drop-name">{uploading ? 'Uploading…' : 'or Ctrl+V'}</span>
           </div>
         </label>
       </div>
@@ -268,6 +307,11 @@ export default function ProductFormFields({
           Add URL
         </button>
       </div>
+      {imageError && (
+        <p className="form-error" role="alert">
+          {imageError}
+        </p>
+      )}
 
       {form.images.length > 0 && (
         <div className="image-gallery">
@@ -283,7 +327,8 @@ export default function ProductFormFields({
               onDrop={() => handleImageDrop(index)}
               title="Drag to reorder"
             >
-              <img src={img.thumbnail || img.url} alt={`Product image ${index + 1}`} />
+              {/* Google Drive's image host answers most requests that carry a referrer with 429. */}
+              <img src={img.thumbnail || img.url} alt={`Product image ${index + 1}`} referrerPolicy="no-referrer" />
               {index === 0 ? (
                 <span className="image-gallery-badge">Cover</span>
               ) : (
@@ -304,17 +349,19 @@ export default function ProductFormFields({
         </div>
       )}
 
-      <label>
-        Description
-        <textarea
-          className="input"
-          rows={3}
-          required
-          minLength={10}
-          value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
-        />
-      </label>
+      {!hideDescription && (
+        <label>
+          Description
+          <textarea
+            className="input"
+            rows={3}
+            required
+            minLength={10}
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+          />
+        </label>
+      )}
       <label className="checkbox-row">
         <input type="checkbox" checked={form.featured} onChange={(e) => setForm({ ...form, featured: e.target.checked })} />
         Featured on homepage

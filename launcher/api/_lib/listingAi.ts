@@ -87,6 +87,32 @@ export function listingMessages(product: ListingProduct, attrs: DarazAttribute[]
   ];
 }
 
+/** Asks for the store description. The model only sees the name, brand and specs, so it is told not to make up the rest. */
+export function descriptionMessages(product: Omit<ListingProduct, 'description'>): ChatMessage[] {
+  const data = JSON.stringify({
+    name: product.name.slice(0, 200),
+    brand: (product.brand || '').slice(0, 100),
+    specs: (product.specs || []).slice(0, 15),
+  });
+  return [
+    { role: 'system', content: SYSTEM },
+    {
+      role: 'user',
+      content:
+        `Product: ${data}\n\n` +
+        'Write the description shoppers read on the product page. Reply as {"description": "80 to 120 words of plain English text, no HTML or markdown"}.\n' +
+        'Use only facts found in the product data, plus what is generally true of this kind of product. Never invent numbers, sizes, materials, ' +
+        'certifications, warranties or included items. Leave the brand out if it is empty or means no brand.',
+    },
+  ];
+}
+
+/** The description with any stray markdown removed, or '' when it is too short for Daraz to accept. */
+export function readDescriptionAnswer(answer: Record<string, unknown>) {
+  const text = typeof answer.description === 'string' ? answer.description.replace(/[#*`]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 2000) : '';
+  return countWords(text) >= MIN_DESCRIPTION_WORDS ? text : '';
+}
+
 const clean = (value: unknown) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, MAX_VALUE_LENGTH) : '');
 
 function positive(value: unknown, max: number) {
@@ -164,10 +190,26 @@ function generatedIdentifier(attr: Pick<DarazAttribute, 'name' | 'label'>, rando
   return '';
 }
 
+const MODEL_FIELD = /(^|[\s_])model($|[\s_])/i;
+const GENERIC_MODEL = 'Generic';
+// Best first: the options that mean "no particular model", for categories where Model is a fixed list.
+const GENERIC_MODEL_OPTIONS = [/\buniversal\b/i, /\bgeneric\b/i, /\bno model\b/i, /\bothers?\b/i, /\bnot specified\b/i, /\bnone\b/i];
+
+/** Daraz requires a Model even for unbranded goods that have none, so those are listed as generic. */
+function genericModel(attr: Pick<DarazAttribute, 'name' | 'label' | 'options'>) {
+  if (!MODEL_FIELD.test(`${attr.name} ${attr.label}`)) return '';
+  if (!attr.options.length) return GENERIC_MODEL;
+  for (const pattern of GENERIC_MODEL_OPTIONS) {
+    const option = attr.options.find((o) => pattern.test(o));
+    if (option) return option;
+  }
+  return '';
+}
+
 /**
  * Combines what the seller typed (always wins), what the AI wrote and the plain product details into the
- * values for the category's required fields. ISBN/ISSN fields nobody could fill get a generated number; anything
- * else left over is returned as `missing` for the seller.
+ * values for the category's required fields. ISBN/ISSN fields nobody could fill get a generated number and a Model
+ * nobody could fill is listed as generic; anything else left over is returned as `missing` for the seller.
  */
 export function composeAttributes(
   required: DarazAttribute[],
@@ -192,7 +234,7 @@ export function composeAttributes(
           : role === 'highlights'
             ? highlights
             : '';
-    const value = fromRole.trim() || draft?.attributes[attr.name] || generatedIdentifier(attr, random);
+    const value = fromRole.trim() || draft?.attributes[attr.name] || generatedIdentifier(attr, random) || genericModel(attr);
     if (value) values[attr.name] = value;
     else missing.push(attr);
   }

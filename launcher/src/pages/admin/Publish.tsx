@@ -8,6 +8,7 @@ import {
   getDarazCategories,
   prepareDarazListing,
   publishToDaraz,
+  writeProductDescription,
   type DarazPublishResult,
 } from '../../api/daraz';
 import type { Product } from '../../api/types';
@@ -39,6 +40,9 @@ import { getErrorMessage } from '../../utils/errors';
 
 type StepState = { status: 'idle' | 'running' | 'done' | 'failed' | 'skipped'; message?: string };
 
+// Every product published from this page starts with this stock.
+const newProductForm: ProductForm = { ...emptyForm, stock: '30' };
+
 const STEP_TEXT: Record<StepState['status'], string> = {
   idle: 'Waiting',
   running: 'Working…',
@@ -58,7 +62,7 @@ function StepRow({ label, step }: { label: string; step: StepState }) {
 
 export default function Publish() {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState<ProductForm>(emptyForm);
+  const [form, setForm] = useState<ProductForm>(newProductForm);
   const [daraz, setDaraz] = useState<DarazForm>(initialDaraz);
   const [showDaraz, setShowDaraz] = useState(false);
   const [error, setError] = useState('');
@@ -127,7 +131,7 @@ export default function Publish() {
     return '';
   }
 
-  async function runDaraz(quantumProductId: string | undefined, imageUrls: string[], plan: DarazForm) {
+  async function runDaraz(quantumProductId: string | undefined, imageUrls: string[], plan: DarazForm, description: string) {
     setDarazStep({ status: 'running' });
     try {
       const result = await publishToDaraz({
@@ -135,7 +139,7 @@ export default function Publish() {
         categoryId: plan.categoryId as number,
         name: form.name,
         description: descriptionForDaraz({
-          description: form.description,
+          description,
           aiDescription: plan.aiDescription,
           specs: parseSpecs(form.specsText),
         }),
@@ -171,7 +175,7 @@ export default function Publish() {
   }
 
   /** Lets the AI choose the category and fill everything else Daraz needs. Returns the plan, or '' + why not. */
-  async function prepareDaraz(): Promise<{ plan: DarazForm; problem: string }> {
+  async function prepareDaraz(description: string): Promise<{ plan: DarazForm; problem: string }> {
     setPhase('Writing the Daraz listing…');
     let plan = daraz;
     let aiProblem = '';
@@ -179,7 +183,7 @@ export default function Publish() {
       const prepared = await prepareDarazListing({
         name: form.name.trim(),
         brand: form.brand.trim(),
-        description: form.description.trim(),
+        description,
         specs: parseSpecs(form.specsText),
         categoryId: daraz.categoryId,
         attributes: daraz.attributes,
@@ -203,10 +207,30 @@ export default function Publish() {
     setError('');
     setBusy(true);
 
+    // Written fresh until the product exists, so a name corrected after a failure gets a matching description.
+    let description = form.description;
+    if (!createdProduct) {
+      setPhase('Writing the description…');
+      try {
+        description = await writeProductDescription({
+          name: form.name.trim(),
+          brand: form.brand.trim(),
+          specs: parseSpecs(form.specsText),
+        });
+        setForm((prev) => ({ ...prev, description }));
+      } catch (err) {
+        // Nothing has been created yet, so the seller can press the button again.
+        setError(getErrorMessage(err, 'The AI could not write the description'));
+        setPhase('');
+        setBusy(false);
+        return;
+      }
+    }
+
     // The AI fills only what is still empty, so a retry after a Daraz failure keeps everything already in the form.
     let plan = daraz;
     if (darazOn) {
-      const prepared = await prepareDaraz();
+      const prepared = await prepareDaraz(description);
       plan = prepared.plan;
       if (prepared.problem) {
         // Nothing new has been created, so the seller can fix it and press the button again.
@@ -249,7 +273,7 @@ export default function Publish() {
       try {
         // With Daraz on, the Daraz category group decides the store category.
         const category = darazOn ? await ensureStoreCategory(groupOf(plan.categoryLabel), categories) : form.category;
-        const { data } = await api.post<Product>('/products', buildProductPayload({ ...form, images, category }, pkrRate));
+        const { data } = await api.post<Product>('/products', buildProductPayload({ ...form, description, images, category }, pkrRate));
         setCreatedProduct(data);
         productId = data._id;
         setStoreStep({ status: 'done', message: 'Product created' });
@@ -268,7 +292,7 @@ export default function Publish() {
     if (darazOn && imageProblem) {
       setDarazStep({ status: 'failed', message: imageProblem });
     } else if (darazOn) {
-      await runDaraz(productId, images.map((i) => i.url), plan);
+      await runDaraz(productId, images.map((i) => i.url), plan, description);
     } else {
       setDarazStep({ status: 'skipped', message: 'connect Daraz to publish there too' });
     }
@@ -277,7 +301,7 @@ export default function Publish() {
   }
 
   function startAnother() {
-    setForm({ ...emptyForm, category: categories[0] || 'Laptops' });
+    setForm({ ...newProductForm, category: categories[0] || 'Laptops' });
     setDaraz(initialDaraz());
     setShowDaraz(false);
     setStoreStep({ status: 'idle' });
@@ -292,8 +316,8 @@ export default function Publish() {
     <div>
       <h1>Publish product</h1>
       <p className="muted">
-        Fill in the product once and press Publish. It is added to QuantumStore{darazOn ? ' and Daraz' : ''}; the AI
-        picks the Daraz category and writes everything else Daraz asks for.
+        Fill in the product once and press Publish. It is added to QuantumStore{darazOn ? ' and Daraz' : ''} with a stock
+        of 30; the AI writes the description, picks the Daraz category and fills in everything else Daraz asks for.
       </p>
 
       <form className="admin-form" onSubmit={handlePublish}>
@@ -303,7 +327,8 @@ export default function Publish() {
             setForm={setForm}
             categories={categories}
             hideCategory={darazOn}
-            onError={setError}
+            hideStock
+            hideDescription
             onUploadingChange={setUploading}
           />
 
