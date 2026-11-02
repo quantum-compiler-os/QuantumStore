@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { enlargedSize, MIN_IMAGE_SIDE } from '../src/features/products/imageSize';
+import { enlargedSize, MIN_IMAGE_SIDE, pastedImages } from '../src/features/products/imageSize';
+
+describe('pastedImages', () => {
+  const screenshot = new File(['x'], 'image.png', { type: 'image/png' });
+  const notes = new File(['x'], 'notes.txt', { type: 'text/plain' });
+
+  it('takes a screenshot wherever it is pasted', () => {
+    expect(pastedImages([screenshot], '', false)).toEqual([screenshot]);
+    expect(pastedImages([screenshot], '', true)).toEqual([screenshot]);
+  });
+
+  it('leaves text with a picture alongside it to the text field', () => {
+    expect(pastedImages([screenshot], 'Cell text', true)).toEqual([]);
+    expect(pastedImages([screenshot], 'Cell text', false)).toEqual([screenshot]);
+  });
+
+  it('ignores everything that is not an image', () => {
+    expect(pastedImages([notes], '', false)).toEqual([]);
+    expect(pastedImages([], 'https://example.com/a.jpg', false)).toEqual([]);
+  });
+});
 
 describe('enlargedSize', () => {
   it('brings both sides of a small image up to the Daraz minimum, keeping its shape', () => {
