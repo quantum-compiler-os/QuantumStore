@@ -40,8 +40,8 @@ import { getErrorMessage } from '../../utils/errors';
 
 type StepState = { status: 'idle' | 'running' | 'done' | 'failed' | 'skipped'; message?: string };
 
-// Every product published from this page starts with this stock.
-const newProductForm: ProductForm = { ...emptyForm, stock: '30' };
+// Every product published from this page gets this brand and stock.
+const newProductForm: ProductForm = { ...emptyForm, brand: 'No Brand', stock: '30' };
 
 const STEP_TEXT: Record<StepState['status'], string> = {
   idle: 'Waiting',
@@ -121,6 +121,7 @@ export default function Publish() {
   const locked = busy || allDone;
 
   function validate(): string {
+    if (!createdProduct && !form.name.trim()) return 'Enter a product name';
     if (!form.images.length) return 'At least one product image is required';
     if (darazOn) {
       const quantity = daraz.quantity || form.stock;
@@ -133,18 +134,25 @@ export default function Publish() {
 
   async function runDaraz(quantumProductId: string | undefined, imageUrls: string[], plan: DarazForm, description: string) {
     setDarazStep({ status: 'running' });
+    // Once QuantumStore has created the product, its saved fields are the source of truth for retries.
+    const listingName = createdProduct?.name?.trim() || form.name.trim();
+    const listingBrand = createdProduct?.brand?.trim() || form.brand.trim();
+    if (!listingName) {
+      setDarazStep({ status: 'failed', message: 'The QuantumStore product has no name. Edit the product before retrying Daraz.' });
+      return false;
+    }
     try {
       const result = await publishToDaraz({
         quantumProductId,
         categoryId: plan.categoryId as number,
-        name: form.name,
+        name: listingName,
         description: descriptionForDaraz({
-          description,
+          description: createdProduct?.description || description,
           aiDescription: plan.aiDescription,
           specs: parseSpecs(form.specsText),
         }),
-        brand: form.brand,
-        sellerSku: plan.sellerSku.trim() || autoSku,
+        brand: listingBrand,
+        sellerSku: plan.sellerSku.trim() || slugSku(listingName, skuSuffix.current),
         quantity: Number(plan.quantity || form.stock),
         price: darazPrice(plan, form.price),
         specialPrice: plan.specialPrice ? Number(plan.specialPrice) : null,
@@ -155,7 +163,7 @@ export default function Publish() {
           length: Number(plan.length),
           width: Number(plan.width),
           height: Number(plan.height),
-          content: plan.content.trim() || form.name,
+          content: plan.content.trim() || listingName,
         },
         attributes: plan.attributes,
       });
@@ -316,8 +324,8 @@ export default function Publish() {
     <div>
       <h1>Publish product</h1>
       <p className="muted">
-        Fill in the product once and press Publish. It is added to QuantumStore{darazOn ? ' and Daraz' : ''} with a stock
-        of 30; the AI writes the description, picks the Daraz category and fills in everything else Daraz asks for.
+        Fill in the product once and press Publish. It is added to QuantumStore{darazOn ? ' and Daraz' : ''} as No Brand
+        with a stock of 30; the AI writes the description, picks the Daraz category and fills in everything else Daraz asks for.
       </p>
 
       <form className="admin-form" onSubmit={handlePublish}>
@@ -327,6 +335,7 @@ export default function Publish() {
             setForm={setForm}
             categories={categories}
             hideCategory={darazOn}
+            hideBrand
             hideStock
             hideDescription
             onUploadingChange={setUploading}

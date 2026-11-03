@@ -64,7 +64,12 @@ export function isKeywordRefused(message: string) {
   return /not allowed to sell these keywords/i.test(message);
 }
 
-const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Daraz refusing the product title ("title: C004: cannot be blank" for a 227-character name, or a length complaint). */
+export function isTitleRefused(message: string) {
+  return /\btitle\b[^.]*(cannot be blank|too long|length|exceed)/i.test(message);
+}
+
+const escapeRegExp =(text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Takes whole words out of a text ("… by Audionic." → "…"), then tidies the spaces and punctuation left behind. */
 export function removeWords(text: string, words: string[]) {

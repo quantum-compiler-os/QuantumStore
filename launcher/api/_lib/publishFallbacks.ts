@@ -1,9 +1,26 @@
 import { NO_BRAND, shouldRetryAsNoBrand, type DarazProductInput } from './darazCore.js';
 import type { AttributeRole, Rewrite } from './listingAi.js';
-import { MIN_DESCRIPTION_WORDS, countWords, isKeywordRefused, removeWords } from '../../shared/darazText.js';
+import { MIN_DESCRIPTION_WORDS, countWords, isKeywordRefused, isTitleRefused, removeWords } from '../../shared/darazText.js';
 
 export const NO_BRAND_NOTE = 'listed as No Brand';
 export const STRIPPED_NOTE = 'brand name removed from the texts';
+// The AI rewrite asks for a title of at most this length too.
+const SHORT_TITLE = 100;
+
+/** The name cut at a word boundary to a length Daraz takes, without a dangling separator. */
+export function shortenTitle(name: string) {
+  if (name.length <= SHORT_TITLE) return name;
+  const cut = name.slice(0, SHORT_TITLE + 1);
+  const space = cut.lastIndexOf(' ');
+  return (space > SHORT_TITLE / 2 ? cut.slice(0, space) : name.slice(0, SHORT_TITLE)).replace(/[\s\-–|,(/+&]+$/, '');
+}
+
+/** The same listing under a new title, wherever the title appears. */
+function withTitle(input: DarazProductInput, title: string, roles: Record<string, AttributeRole | null> = {}): DarazProductInput {
+  const attributes = { ...input.attributes };
+  for (const [name, role] of Object.entries(roles)) if (role === 'name') attributes[name] = title;
+  return { ...input, name: title, package: { ...input.package, content: title }, attributes };
+}
 
 function mapStrings(values: Record<string, string>, fn: (text: string) => string) {
   return Object.fromEntries(Object.entries(values).map(([key, value]) => [key, fn(value)]));
@@ -71,7 +88,8 @@ type Options<T> = {
  *  1. brand refused (unknown or not authorized)        → the same listing as "No Brand"
  *  2. "not allowed to sell these keywords"             → the brand name removed from the texts (and "No Brand")
  *  3. still refused for keywords                       → the AI's generic title and description (and "No Brand")
- * Each step is tried once, in that order; anything else Daraz says is raised as it is. `changes` says what was altered.
+ *  4. title refused (blank or too long)                → the AI's generic wording, or without an AI the name shortened
+ * Each step is tried once; anything else Daraz says is raised as it is. `changes` says what was altered.
  */
 export async function createWithFallbacks<T>({
   input,
@@ -86,6 +104,17 @@ export async function createWithFallbacks<T>({
   const changes: string[] = [];
   let triedStrip = false;
   let triedRewrite = false;
+  let triedTitle = false;
+
+  async function askRewrite() {
+    triedRewrite = true;
+    return rewrite
+      ? rewrite(current).catch((rewriteError: unknown) => {
+          log(`the AI rewrite failed: ${rewriteError instanceof Error ? rewriteError.message : rewriteError}`);
+          return null;
+        })
+      : null;
+  }
 
   for (;;) {
     try {
@@ -114,17 +143,33 @@ export async function createWithFallbacks<T>({
           }
         }
         if (!triedRewrite && rewrite) {
-          triedRewrite = true;
           log(`keywords still refused (${err.message}); asking the AI for a generic title and description`);
-          const written = await rewrite(current).catch((rewriteError: unknown) => {
-            log(`the AI rewrite failed: ${rewriteError instanceof Error ? rewriteError.message : rewriteError}`);
-            return null;
-          });
+          const written = await askRewrite();
           if (written) {
             changes.push(`generic title "${written.name}"`);
             current = withoutBrand(applyRewrite(current, written, attributeRoles), changes);
             continue;
           }
+        }
+      }
+
+      if (isTitleRefused(err.message) && !triedTitle) {
+        triedTitle = true;
+        if (!triedRewrite && rewrite) {
+          log(`title refused (${err.message}); asking the AI for a shorter title`);
+          const written = await askRewrite();
+          if (written) {
+            changes.push(`generic title "${written.name}"`);
+            current = applyRewrite(current, written, attributeRoles);
+            continue;
+          }
+        }
+        const short = shortenTitle(current.name);
+        if (short !== current.name) {
+          log(`title refused (${err.message}); retrying with the name shortened to ${short.length} characters`);
+          changes.push(`shortened title "${short}"`);
+          current = withTitle(current, short, attributeRoles);
+          continue;
         }
       }
       throw err;

@@ -16,7 +16,9 @@ blob-report/
 playwright/.cache/
 scripts/.screenshots/
 .vercel/
-
+/.claude/
+.claude/
+.claude
 
 *.tsbuildinfo
 /.git-multi-commit.json

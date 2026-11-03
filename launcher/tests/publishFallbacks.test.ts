@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DarazProductInput } from '../api/_lib/darazCore';
 import { readRewriteAnswer, rewriteMessages } from '../api/_lib/listingAi';
 import { NO_BRAND_NOTE, STRIPPED_NOTE, applyRewrite, createWithFallbacks, stripBrandWords } from '../api/_lib/publishFallbacks';
-import { isKeywordRefused, removeWords } from '../shared/darazText';
+import { isKeywordRefused, isTitleRefused, removeWords } from '../shared/darazText';
 
 const words = (n: number, prefix = 'w') => Array.from({ length: n }, (_, i) => `${prefix}${i}`).join(' ');
 
@@ -164,6 +164,47 @@ describe('createWithFallbacks', () => {
     const network = vi.fn(async () => Promise.reject(new Error('offline')));
     await expect(run(network)).rejects.toThrow('offline');
     expect(network).toHaveBeenCalledTimes(1);
+  });
+
+  describe('a refused title', () => {
+    const titleBlank = 'E500: Create product failed — title: C004: cannot be blank. Kindly input the information before re-uploading.';
+    const longName =
+      'Vivo Y19s - 6.74 Inches LCD Display - 8+1GB RAM - 256GB Storage (128GB Usable + 128GB System Reserved) - Official PTA Approved - Fingerprint Sensor - (Phone and Universal Box. No Charger and No Accessories Included - Mix Color)';
+    const long = { ...input, name: longName, brand: 'No Brand', package: { ...input.package, content: longName } };
+    const runLong = (attempt: (i: DarazProductInput) => Promise<string>, extra: Record<string, unknown> = {}) =>
+      createWithFallbacks({ input: long, attempt, isRefusal, brandWords: ['No Brand'], attributeRoles: { name_en: 'name' }, ...extra });
+
+    it('is recognised, and other messages are not', () => {
+      expect(isTitleRefused(titleBlank)).toBe(true);
+      expect(isTitleRefused(keyword)).toBe(false);
+      expect(isTitleRefused('E500: package weight is invalid')).toBe(false);
+    });
+
+    it('is answered with the AI title when there is an AI', async () => {
+      const rewrite = vi.fn(async () => ({ name: 'Smartphone 6.74 inch display 256GB', description: words(45), highlights: [] }));
+      const attempt = vi.fn().mockRejectedValueOnce(refusal(titleBlank)).mockResolvedValueOnce('item-t1');
+      const result = await runLong(attempt, { rewrite });
+      expect(result.changes).toEqual(['generic title "Smartphone 6.74 inch display 256GB"']);
+      expect(attempt.mock.calls[1][0].name).toBe('Smartphone 6.74 inch display 256GB');
+    });
+
+    it('is answered by shortening the name without an AI, or when the AI fails', async () => {
+      for (const extra of [{}, { rewrite: vi.fn(async () => Promise.reject(new Error('Groq down'))) }]) {
+        const attempt = vi.fn().mockRejectedValueOnce(refusal(titleBlank)).mockResolvedValueOnce('item-t2');
+        const result = await runLong(attempt, extra);
+        const sent = attempt.mock.calls[1][0];
+        expect(sent.name).toBe('Vivo Y19s - 6.74 Inches LCD Display - 8+1GB RAM - 256GB Storage (128GB Usable + 128GB System');
+        expect(sent.package.content).toBe(sent.name);
+        expect(sent.attributes.name_en).toBe(sent.name);
+        expect(result.changes).toEqual([`shortened title "${sent.name}"`]);
+      }
+    });
+
+    it("gives up with Daraz's message when a short title is refused too", async () => {
+      const attempt = vi.fn(async () => Promise.reject(refusal(titleBlank)));
+      await expect(run(attempt)).rejects.toThrow(/title/);
+      expect(attempt).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('logs each step', async () => {

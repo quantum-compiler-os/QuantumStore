@@ -16,7 +16,8 @@ type Props = {
   categories: string[];
   /** Hide the store category when something else (the Daraz category) decides it. */
   hideCategory?: boolean;
-  /** Hide the stock and description when the page sets them itself. */
+  /** Hide the brand, stock and description when the page sets them itself. */
+  hideBrand?: boolean;
   hideStock?: boolean;
   hideDescription?: boolean;
   onUploadingChange?: (uploading: boolean) => void;
@@ -28,6 +29,7 @@ export default function ProductFormFields({
   setForm,
   categories,
   hideCategory = false,
+  hideBrand = false,
   hideStock = false,
   hideDescription = false,
   onUploadingChange,
@@ -166,10 +168,12 @@ export default function ProductFormFields({
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
         </label>
-        <label>
-          Brand
-          <input className="input" value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
-        </label>
+        {!hideBrand && (
+          <label>
+            Brand
+            <input className="input" value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
+          </label>
+        )}
         <label>
           Price (Rs)
           <input
