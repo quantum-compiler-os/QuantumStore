@@ -146,6 +146,7 @@ export type SyncDeps = {
     categoryId: number | null;
     attributes: Record<string, string>;
     known?: KnownListing;
+    fillRest?: boolean;
   }) => Promise<PreparedListing>;
   /** Ready-made Daraz text and package size for a supplier product, if there is one (shared/audionicListing.json). */
   knownListing?: (sourceId: string) => KnownListing | undefined;
@@ -163,8 +164,18 @@ export type SyncDeps = {
   log?: (text: string, level?: 'info' | 'error') => void;
 };
 
+/**
+ * Thrown by `hostImages` when the supplier has no picture that works for a product (missing or broken files on their
+ * site). The product is skipped, not failed: nothing on our side is wrong, so the run carries on.
+ */
+export class NoPicturesError extends Error {}
+
+/** Daraz's per-category price cap ("Max Price Spam" policy): the product can only be sold on QuantumStore. */
+const isAbovePriceCap = (message: string) => /max price spam|price exceeds the allowed threshold/i.test(message);
+
 export type SyncResult = {
-  store: 'created' | 'refreshed' | 'unchanged' | 'failed';
+  /** `skipped`: the supplier has no working picture for it, so it was not listed anywhere. */
+  store: 'created' | 'refreshed' | 'unchanged' | 'skipped' | 'failed';
   /** `blocked`: Daraz refused the brand (needs brand authorization), which is not a fault in the product or the Launcher. */
   daraz: 'listed' | 'unchanged' | 'skipped' | 'failed' | 'blocked';
   storeMessage?: string;
@@ -263,6 +274,10 @@ export async function syncItem(
     if (result.store === 'unchanged') log('QuantumStore: nothing to change');
   } catch (err) {
     const message = messageOf(err, 'Could not save the product');
+    if (err instanceof NoPicturesError) {
+      log(`skipped — ${message}`, 'error');
+      return { store: 'skipped', daraz: 'skipped', storeMessage: message, darazMessage: 'No picture' };
+    }
     log(`QuantumStore: FAILED — ${message}`, 'error');
     return { store: 'failed', daraz: 'skipped', storeMessage: message, darazMessage: 'Waiting for QuantumStore' };
   }
@@ -306,6 +321,8 @@ export async function syncItem(
       categoryId,
       attributes: {},
       ...(known ? { known } : {}),
+      // Nobody is there to type a field the AI left empty, so it gets a neutral value instead of failing the listing.
+      fillRest: true,
     });
     const plan = applyPrepared({ ...initialDaraz(), categoryId, categoryLabel: path, quantity, sellerSku }, prepared);
     // Daraz price = the same rupee price pushed through the commission formula (price ÷ (1 − commission%)).
@@ -313,6 +330,9 @@ export async function syncItem(
     const filled = Object.keys(plan.attributes).length;
     log(
       `Daraz: AI done — package ${plan.weight} kg, ${plan.length}×${plan.width}×${plan.height} cm, ${filled} category field${filled === 1 ? '' : 's'} filled` +
+        (prepared.placeholders?.length
+          ? `, set as not applicable: ${prepared.placeholders.map((p) => `${p.label} = ${p.value}`).join(', ')}`
+          : '') +
         (prepared.missing.length ? `, still missing: ${prepared.missing.map((m) => m.label).join(', ')}` : ''),
     );
     const problem = darazProblem(plan, price, quantity);
@@ -360,6 +380,11 @@ export async function syncItem(
       const blocked = brandBlockedMessage(brand);
       log(`Daraz: BLOCKED — ${blocked}`, 'error');
       return { ...result, daraz: 'blocked', darazMessage: blocked };
+    }
+    if (isAbovePriceCap(message)) {
+      const capped = 'Daraz does not allow a price this high in this category (Max Price policy); it stays on QuantumStore only';
+      log(`Daraz: skipped — ${capped}`, 'error');
+      return { ...result, daraz: 'skipped', darazMessage: capped };
     }
     log(`Daraz: FAILED — ${message}`, 'error');
     return { ...result, daraz: 'failed', darazMessage: message };

@@ -5,6 +5,7 @@ import {
   composeAttributes,
   descriptionMessages,
   listingMessages,
+  placeholderValue,
   randomIsbn13,
   randomIssn,
   readDescriptionAnswer,
@@ -164,6 +165,15 @@ describe('composeAttributes', () => {
       const other = normalizeAttributes([{ name: 'compatible_models', label: 'Compatible Models', is_mandatory: 1 }]);
       expect(composeAttributes(other, product, null).missing.map((a) => a.name)).toEqual(['compatible_models']);
     });
+  });
+});
+
+describe('a required field that does not apply (bulk sync)', () => {
+  it('takes the option that says so, else the first option, else "Not Applicable"', () => {
+    expect(placeholderValue({ options: ['2GB', '4GB', 'Not Specified'] })).toBe('Not Specified');
+    expect(placeholderValue({ options: ['Integrated', 'N/A'] })).toBe('N/A');
+    expect(placeholderValue({ options: ['2GB', '4GB'] })).toBe('2GB');
+    expect(placeholderValue({ options: [] })).toBe('Not Applicable');
   });
 });
 

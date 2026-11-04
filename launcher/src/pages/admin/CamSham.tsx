@@ -46,6 +46,7 @@ const CAMSHAM: SupplierConfig<CamshamItem> = {
       copy = hostPictures(item.darazImages, {
         download: async (url) => fitPictureForDaraz(await downloadCamshamImage(url)),
         upload: uploadImage,
+        copiesOf: (url) => item.pictureCopies?.[url] ?? [],
         onSkip: (url, reason) => log(`${item.name} — picture left out (${reason}): ${url}`, 'error'),
       });
       copy.catch(() => hosted.delete(id));

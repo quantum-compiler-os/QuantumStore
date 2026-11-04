@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fetchCamshamImage, isCamshamImage, toItem, typeOf, type WooCategory, type WooProduct } from '../api/_lib/camsham';
+import { fetchCamshamImage, isCamshamImage, resizedCopies, toItem, typeOf, type WooCategory, type WooProduct } from '../api/_lib/camsham';
+import { NoPicturesError } from '../src/features/audionic/syncOne';
 import { camshamFallbackCategory, camshamSku, hostPictures, pictureCanvas, storeCategoryFor } from '../src/features/camsham/camsham';
 
 const categories = new Map<number, WooCategory>(
@@ -152,10 +153,36 @@ describe('CamSham pictures', () => {
     expect(pictureCanvas(2000, 1500)).toBeNull();
   });
 
-  it('fail when not one picture could be copied', async () => {
-    await expect(
-      hostPictures(['https://c/a.webp'], { download: async () => Promise.reject(new Error('timed out')), upload: vi.fn() }),
-    ).rejects.toThrow(/Could not copy any picture.*timed out/);
+  it('skip the product when not one picture works', async () => {
+    const copying = hostPictures(['https://c/a.webp'], { download: async () => Promise.reject(new Error('404')), upload: vi.fn() });
+    await expect(copying).rejects.toBeInstanceOf(NoPicturesError);
+    await expect(copying).rejects.toThrow(/no working picture.*404/);
+  });
+
+  it('fall back to CamSham\'s resized copy when the full-size file is missing or broken', async () => {
+    const tried: string[] = [];
+    const pictures = await hostPictures(['https://c/z50.png'], {
+      download: async (url) => {
+        tried.push(url);
+        if (url.endsWith('z50.png')) throw new Error('The source image could not be decoded.');
+        return new Blob(['x'], { type: 'image/png' });
+      },
+      upload: async (file) => ({ url: `https://drive/${file.name}` }),
+      copiesOf: () => ['https://c/z50-1024x683.png', 'https://c/z50-768x512.png'],
+    });
+    expect(tried).toEqual(['https://c/z50.png', 'https://c/z50-1024x683.png']);
+    expect(pictures.image).toBe('https://drive/z50-1024x683.png');
+  });
+
+  it('are read with their resized copies, largest first and not too small', () => {
+    const srcset =
+      'https://c/z50.png 1030w, https://c/z50-300x200.png 300w, https://c/z50-1024x683.png 1024w, https://c/z50-768x512.png 768w, https://c/z50-150x100.png 150w';
+    expect(resizedCopies({ src: 'https://c/z50.png', srcset })).toEqual([
+      'https://c/z50-1024x683.png',
+      'https://c/z50-768x512.png',
+      'https://c/z50-300x200.png',
+    ]);
+    expect(resizedCopies({ src: 'https://c/a.jpg' })).toEqual([]);
   });
 });
 

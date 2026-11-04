@@ -73,10 +73,20 @@ type LogLine = { time: string; level: 'info' | 'error'; text: string };
 
 const MAX_LOG_LINES = 500;
 
-/** Groq's free plan only allows a few requests a minute: on a rate limit the product waits this long (seconds) and tries again, until it goes through or Stop is pressed. */
+/**
+ * When the AI (Groq) cannot answer for a while — its rate limit, or the connection to it failing (e.g. a DNS hiccup) —
+ * the product waits this long (seconds) and tries again, until it goes through or Stop is pressed.
+ */
 const RATE_LIMIT_WAIT = 60;
 
-const rateLimited = (result: SyncResult) => result.daraz === 'failed' && /rate limit/i.test(result.darazMessage || '');
+/** Why Groq could not answer, when that is something a short wait fixes; otherwise null. */
+function aiUnavailable(result: SyncResult) {
+  if (result.daraz !== 'failed') return null;
+  const message = result.darazMessage || '';
+  if (/rate limit/i.test(message)) return 'Groq rate limit';
+  if (/could not reach groq|groq did not answer/i.test(message)) return 'Groq unreachable';
+  return null;
+}
 
 const logAsText = (lines: LogLine[]) =>
   lines.map((l) => `${l.time} ${l.level === 'error' ? '[ERROR] ' : ''}${l.text}`).join('\n');
@@ -111,6 +121,7 @@ const STORE_STATUS: Record<SyncResult['store'], string> = {
   created: 'done',
   refreshed: 'done',
   unchanged: 'done',
+  skipped: 'skipped',
   failed: 'failed',
 };
 const DARAZ_STATUS: Record<SyncResult['daraz'], string> = {
@@ -156,7 +167,7 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
   // Links saved since the catalog was read, so retrying a product never creates it on QuantumStore a second time.
   const freshLinks = useRef(new Map<string, SupplierLinkRow>());
   // Seconds left before a product held up by Groq's rate limit is tried again (shown live at the end of the log).
-  const [countdown, setCountdown] = useState<number | null>(null);
+  const [countdown, setCountdown] = useState<{ why: string; left: number } | null>(null);
 
   const addLog = useCallback((text: string, level: 'info' | 'error' = 'info') => {
     setLog((prev) => [...prev.slice(-(MAX_LOG_LINES - 1)), { time: new Date().toLocaleTimeString(), level, text }]);
@@ -400,7 +411,7 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
       `Starting: ${toSync.length} products · ${darazReady ? 'Daraz connected' : 'Daraz NOT connected (QuantumStore only)'} · ` +
         types.map((type) => `${type} → ${typeCategories[type]?.path || 'no category'}`).join(' | '),
     );
-    const tally = { listed: 0, darazFailed: 0, darazSkipped: 0, darazBlocked: 0, storeFailed: 0 };
+    const tally = { listed: 0, darazFailed: 0, darazSkipped: 0, darazBlocked: 0, storeFailed: 0, noPicture: 0 };
     let blocks = 0;
     let darazPausedReason: string | undefined;
     let done = 0;
@@ -429,13 +440,14 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
       setResults((prev) => ({ ...prev, [id]: 'running' }));
       const latestLink = () => freshLinks.current.get(id) ?? linkById.get(id);
       let result = await syncItem(product, latestLink(), depsFor(item, daraz, darazPausedReason));
-      // The AI (Groq) is busy: wait and send this product to Daraz again instead of failing it. QuantumStore is already done.
-      for (let attempt = 1; rateLimited(result) && !stopRef.current; attempt += 1) {
-        addLog(`Groq rate limit: waiting 1 minute, then sending ${item.name} to Daraz again (try ${attempt + 1})`, 'error');
+      // The AI (Groq) is busy or unreachable: wait and send this product to Daraz again instead of failing it.
+      // QuantumStore is already done.
+      for (let attempt = 1, why = aiUnavailable(result); why && !stopRef.current; attempt += 1, why = aiUnavailable(result)) {
+        addLog(`${why}: waiting 1 minute, then sending ${item.name} to Daraz again (try ${attempt + 1})`, 'error');
         const terminal = new AbortController();
-        terminalCountdown(RATE_LIMIT_WAIT, `Groq rate limit: ${item.name} (try ${attempt + 1})`, terminal.signal);
+        terminalCountdown(RATE_LIMIT_WAIT, `${why}: ${item.name} (try ${attempt + 1})`, terminal.signal);
         for (let left = RATE_LIMIT_WAIT; left > 0 && !stopRef.current; left -= 1) {
-          setCountdown(left);
+          setCountdown({ why, left });
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
         setCountdown(null);
@@ -451,6 +463,7 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
       else if (result.daraz === 'blocked') tally.darazBlocked += 1;
       else if (result.daraz === 'skipped') tally.darazSkipped += 1;
       if (result.store === 'failed') tally.storeFailed += 1;
+      if (result.store === 'skipped') tally.noPicture += 1;
       addLog(`(${done}/${toSync.length}) done`);
 
       // Daraz keeps refusing the brand: stop asking it for the rest of this run, but keep filling QuantumStore.
@@ -469,7 +482,7 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
     }
     setRunning(false);
     addLog(
-      `Finished${stopRef.current ? ' (stopped)' : ''}: ${done} of ${toSync.length} handled · on Daraz ${tally.listed} · Daraz failed ${tally.darazFailed} · Daraz skipped ${tally.darazSkipped} · Daraz brand not authorized ${tally.darazBlocked} · QuantumStore failed ${tally.storeFailed}`,
+      `Finished${stopRef.current ? ' (stopped)' : ''}: ${done} of ${toSync.length} handled · on Daraz ${tally.listed} · Daraz failed ${tally.darazFailed} · Daraz skipped ${tally.darazSkipped} · Daraz brand not authorized ${tally.darazBlocked} · QuantumStore failed ${tally.storeFailed}${tally.noPicture ? ` · skipped (no working picture) ${tally.noPicture}` : ''}`,
       tally.darazFailed || tally.storeFailed ? 'error' : 'info',
     );
     if (haltedBecause) {
@@ -697,7 +710,7 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
             ))}
             {countdown !== null && (
               <div aria-live="off" style={{ color: 'var(--danger, #dc2626)' }}>
-                <span className="muted">Groq rate limit</span> trying again in {countdown} s…
+                <span className="muted">{countdown.why}</span> trying again in {countdown.left} s…
               </div>
             )}
             <div ref={logEndRef} />

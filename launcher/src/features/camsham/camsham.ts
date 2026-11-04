@@ -1,6 +1,6 @@
 import type { DarazCategoryLeaf } from '../../api/daraz';
 import { PATH_SEPARATOR, filterLeaves } from '../daraz/categoryGroups';
-import type { Pictures } from '../audionic/syncOne';
+import { NoPicturesError, type Pictures } from '../audionic/syncOne';
 
 /** The same SKU every time for the same CamSham product, so Daraz rejects a duplicate instead of listing it twice. */
 export const camshamSku = (camshamId: string) => `CS-${camshamId}`;
@@ -62,25 +62,40 @@ type Copy = { url: string; thumbnail?: string };
 
 /**
  * Copies a CamSham product's pictures to QuantumStore's storage (the backend turns them into JPEG, which Daraz needs;
- * CamSham serves many as webp). A picture that cannot be copied is left out and reported; with none left it fails.
+ * CamSham serves many as webp). Some of CamSham's full-size files are missing or cut off while its resized copies
+ * work, so a picture that fails is tried again from `copiesOf(url)` (largest first). A picture with no working copy is
+ * left out and reported; with none left the product is skipped (`NoPicturesError`).
  */
 export async function hostPictures(
   sources: string[],
-  deps: { download: (url: string) => Promise<Blob>; upload: (file: File) => Promise<Copy>; onSkip?: (url: string, reason: string) => void },
+  deps: {
+    download: (url: string) => Promise<Blob>;
+    upload: (file: File) => Promise<Copy>;
+    copiesOf?: (url: string) => string[];
+    onSkip?: (url: string, reason: string) => void;
+  },
 ): Promise<Pictures> {
   const copies: Copy[] = [];
   let lastError = '';
   for (const url of sources) {
-    try {
-      const blob = await deps.download(url);
-      const name = url.split('/').pop()?.split('?')[0] || 'camsham-image';
-      copies.push(await deps.upload(new File([blob], name, { type: blob.type || 'image/jpeg' })));
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
-      deps.onSkip?.(url, lastError);
+    let firstError = '';
+    for (const candidate of [url, ...(deps.copiesOf?.(url) ?? [])]) {
+      try {
+        const blob = await deps.download(candidate);
+        const name = candidate.split('/').pop()?.split('?')[0] || 'camsham-image';
+        copies.push(await deps.upload(new File([blob], name, { type: blob.type || 'image/jpeg' })));
+        firstError = '';
+        break;
+      } catch (err) {
+        firstError ||= err instanceof Error ? err.message : String(err);
+      }
+    }
+    if (firstError) {
+      lastError = firstError;
+      deps.onSkip?.(url, firstError);
     }
   }
-  if (!copies.length) throw new Error(`Could not copy any picture from camsham.pk${lastError ? ` (${lastError})` : ''}`);
+  if (!copies.length) throw new NoPicturesError(`CamSham has no working picture for it${lastError ? ` (${lastError})` : ''}`);
   const [cover, ...rest] = copies;
   return {
     image: cover.url,

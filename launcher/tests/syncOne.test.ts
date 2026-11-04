@@ -4,6 +4,7 @@ import type { AudionicLinkRow } from '../src/api/audionic';
 import { grossUpPrice } from '../src/features/daraz/categoryGroups';
 import {
   DARAZ_QUANTITY,
+  NoPicturesError,
   PAUSE_DARAZ_AFTER_BLOCKS,
   STOP_AFTER_FAILURES,
   consecutiveBlocked,
@@ -553,5 +554,22 @@ describe('another supplier (CamSham)', () => {
     const result = await syncItem(item, undefined, d);
     expect(result).toMatchObject({ store: 'failed', storeMessage: 'Could not copy any picture' });
     expect(d.createProduct).not.toHaveBeenCalled();
+  });
+
+  it('skips the product, without counting a failure, when the supplier has no working picture', async () => {
+    const d = deps({ source: camsham, hostImages: vi.fn(async () => Promise.reject(new NoPicturesError('CamSham has no working picture for it'))) });
+    const result = await syncItem(item, undefined, d);
+    expect(result).toMatchObject({ store: 'skipped', daraz: 'skipped' });
+    expect(d.createProduct).not.toHaveBeenCalled();
+    expect(consecutiveFailures(2, result, 'store')).toBe(0);
+  });
+
+  it('keeps a product above Daraz\'s price cap on QuantumStore only, without counting a failure', async () => {
+    const policy =
+      'E500: Create product failed — Product: BIZ_CHECK_MTEE_RISK_RULE_TRIGGER_ERROR:Failed by Policy(R_6067117): This listing has been rejected under the Max Price Spam policy because the product price exceeds the allowed threshold';
+    const result = await syncItem(item, undefined, deps({ source: camsham, publishDaraz: vi.fn(async () => Promise.reject(new Error(policy))) }));
+    expect(result).toMatchObject({ store: 'created', daraz: 'skipped' });
+    expect(result.darazMessage).toMatch(/Max Price/);
+    expect(consecutiveFailures(2, result, 'daraz')).toBe(2);
   });
 });

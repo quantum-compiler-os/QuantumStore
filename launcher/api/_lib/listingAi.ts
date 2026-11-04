@@ -206,6 +206,24 @@ function genericModel(attr: Pick<DarazAttribute, 'name' | 'label' | 'options'>) 
   return '';
 }
 
+// Best first: options that say a field does not apply to the product.
+const NEUTRAL_OPTIONS = [/not applicable/i, /^n\/?a$/i, /not specified/i, /^none$/i, /^no$/i, /\bothers?\b/i, /\bgeneric\b/i, /\buniversal\b/i];
+const NOT_APPLICABLE = 'Not Applicable';
+
+/**
+ * A value for a required field that neither the seller nor the AI could fill, so a bulk sync is not refused over a
+ * field that does not apply (Daraz asks Flash Drives for "Graphics Memory"): a neutral option when the list has one,
+ * else its first option; "Not Applicable" for a typed field.
+ */
+export function placeholderValue(attr: Pick<DarazAttribute, 'options'>) {
+  if (!attr.options.length) return NOT_APPLICABLE;
+  for (const pattern of NEUTRAL_OPTIONS) {
+    const option = attr.options.find((o) => pattern.test(o.trim()));
+    if (option) return option;
+  }
+  return attr.options[0];
+}
+
 /**
  * Combines what the seller typed (always wins), what the AI wrote and the plain product details into the
  * values for the category's required fields. ISBN/ISSN fields nobody could fill get a generated number and a Model

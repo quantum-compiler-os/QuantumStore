@@ -104,6 +104,8 @@ export type PreparedListing = {
   description?: string;
   /** Required fields nobody could fill (an ISBN the AI cannot know, or no AI key). */
   missing: Array<{ name: string; label: string }>;
+  /** With `fillRest`: the required fields that got a neutral value because nobody could fill them. */
+  placeholders?: Array<{ label: string; value: string }>;
 };
 
 /** Lets the AI pick the category (if none) and fill the English texts, package size and required fields. */
@@ -115,6 +117,7 @@ export async function prepareDarazListing(input: {
   categoryId: number | null;
   attributes: Record<string, string>;
   known?: KnownListing;
+  fillRest?: boolean;
 }) {
   const { data } = await launcherApi.post<PreparedListing>('/ai/prepare-listing', input);
   return data;

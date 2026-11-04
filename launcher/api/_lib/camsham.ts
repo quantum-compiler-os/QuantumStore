@@ -16,7 +16,8 @@ const MAX_SPECS = 30;
 const PARALLEL = 6;
 
 type WooPrices = { price: string; currency_minor_unit: number };
-type WooImage = { src: string; thumbnail?: string };
+/** `srcset` lists WordPress's resized copies ("…-1024x683.png 1024w, …"). */
+type WooImage = { src: string; thumbnail?: string; srcset?: string };
 type WooAttribute = { name: string; has_variations: boolean; terms: Array<{ name: string }> };
 
 export type WooProduct = {
@@ -56,6 +57,8 @@ export type CamshamItem = {
   thumbnail: string;
   images: string[];
   darazImages: string[];
+  /** For each picture, CamSham's resized copies (largest first), tried when the full-size file is missing or broken. */
+  pictureCopies: Record<string, string[]>;
   variants: AudionicVariant[];
   /** The lowest price in rupees, exactly as camsham.pk shows it. */
   pkr: number;
@@ -141,6 +144,24 @@ const brandOf = (product: Pick<WooProduct, 'brands'>) =>
 
 const isWebUrl = (src: string | undefined): src is string => /^https:\/\//i.test(src || '');
 
+/** Resized copies smaller than this are not worth listing (Daraz wants at least 330 px; they would be enlarged a lot). */
+const MIN_COPY_WIDTH = 300;
+const MAX_COPIES = 3;
+
+/** The resized copies in an image's `srcset`, largest first, without the full-size file itself. */
+export function resizedCopies(image: WooImage): string[] {
+  return (image.srcset || '')
+    .split(',')
+    .map((entry) => {
+      const [url, width] = entry.trim().split(/\s+/);
+      return { url, width: Number.parseInt(width, 10) || 0 };
+    })
+    .filter((copy) => isWebUrl(copy.url) && copy.url !== image.src && copy.width >= MIN_COPY_WIDTH)
+    .sort((a, b) => b.width - a.width)
+    .slice(0, MAX_COPIES)
+    .map((copy) => copy.url);
+}
+
 /** One catalog entry as a listable item, or null when there is no price above Rs 0 or no picture to show. */
 export function toItem(product: WooProduct, type: string, variations: WooVariation[] = []): CamshamItem | null {
   const pictures = product.images.filter((img) => isWebUrl(img.src)).slice(0, MAX_IMAGES);
@@ -174,6 +195,7 @@ export function toItem(product: WooProduct, type: string, variations: WooVariati
     thumbnail: isWebUrl(cover.thumbnail) ? cover.thumbnail : cover.src,
     images: rest.map((img) => img.src),
     darazImages: pictures.map((img) => img.src),
+    pictureCopies: Object.fromEntries(pictures.map((img) => [img.src, resizedCopies(img)]).filter(([, copies]) => copies.length)),
     variants,
     pkr,
     available: variants.length ? variants.some((v) => v.available) : product.is_in_stock && product.is_purchasable,

@@ -8,6 +8,7 @@ import {
   composeAttributes,
   draftFromKnown,
   listingMessages,
+  placeholderValue,
   readListingAnswer,
   requiredAttributes,
   type ListingDraft,
@@ -25,6 +26,11 @@ export type PrepareBody = {
   attributes?: Record<string, string>;
   /** A ready-made description, highlights and package size (see shared/knownListing.ts); the AI is not asked for those. */
   known?: unknown;
+  /**
+   * For bulk syncs, where nobody is there to fill a field by hand: required fields left empty get a neutral value
+   * (see `placeholderValue`) instead of being reported as missing. Publish leaves this off so the seller is asked.
+   */
+  fillRest?: boolean;
 };
 
 /**
@@ -76,7 +82,18 @@ export async function prepareListing(body: PrepareBody) {
   }
   if (known) draft = draftFromKnown(known, draft);
 
-  const { values, missing } = composeAttributes(required, product, draft);
+  const composed = composeAttributes(required, product, draft);
+  const { values } = composed;
+  let missing = composed.missing;
+  const placeholders: Array<{ label: string; value: string }> = [];
+  if (body.fillRest === true) {
+    for (const attr of missing) {
+      values[attr.name] = placeholderValue(attr);
+      placeholders.push({ label: attr.label, value: values[attr.name] });
+    }
+    missing = [];
+    if (placeholders.length) logLine(`prepare listing: "${product.name}" filled with placeholders: ${placeholders.map((p) => `${p.label} = ${p.value}`).join(', ')}`);
+  }
   logLine(
     `prepare listing: "${product.name}" category ${categoryId} — ${Object.keys(values).length} fields filled, package ${draft?.package ? (known ? 'from the ready-made data' : 'estimated') : 'NOT estimated'}` +
       (missing.length ? `, missing: ${missing.map((a) => a.label).join(', ')}` : ''),
@@ -87,5 +104,6 @@ export async function prepareListing(body: PrepareBody) {
     package: draft?.package ?? null,
     description: draft?.description ?? '',
     missing: missing.map((a) => ({ name: a.name, label: a.label })),
+    placeholders,
   };
 }
