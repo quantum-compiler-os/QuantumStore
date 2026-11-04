@@ -13,12 +13,37 @@ const BRAND = 'Audionic';
 /** The same SKU every time for the same Audionic product, so Daraz rejects a duplicate instead of listing it twice. */
 export const sellerSkuFor = (audionicId: string) => `AUD-${audionicId}`;
 
+/**
+ * The parts of a supplier product (Audionic, CamSham…) that the sync needs. Each supplier's reader produces these
+ * fields; the supplier's own id lives in `SyncSource` so the sync does not care what it is called.
+ */
+export type SourceItem = Pick<
+  AudionicItem,
+  'name' | 'type' | 'storeCategory' | 'description' | 'specs' | 'image' | 'thumbnail' | 'images' | 'darazImages' | 'variants' | 'pkr' | 'available'
+>;
+
+/** Where a product's pictures live: on QuantumStore (cover, thumbnail, the rest) and the copies Daraz downloads. */
+export type Pictures = Pick<SourceItem, 'image' | 'thumbnail' | 'images' | 'darazImages'>;
+
+/** What an earlier sync made out of one supplier product, without the supplier's id (the page adds it back). */
+export type SourceLink = Omit<AudionicLinkRow, 'audionicId'>;
+
+/** Which supplier a product comes from: its id there, the name shown in messages, the brand and the Daraz SKU. */
+export type SyncSource = { id: string; label: string; brand: string; sellerSku: string };
+
+export const audionicSource = (item: Pick<AudionicItem, 'audionicId'>): SyncSource => ({
+  id: item.audionicId,
+  label: 'Audionic',
+  brand: BRAND,
+  sellerSku: sellerSkuFor(item.audionicId),
+});
+
 export type ItemStatus = 'new' | 'changed' | 'daraz-missing' | 'synced';
 
 /** What a sync run would do with an item, from what was saved last time. */
 export function itemStatus(
-  item: AudionicItem,
-  link: AudionicLinkRow | undefined,
+  item: Pick<SourceItem, 'pkr' | 'available'>,
+  link: SourceLink | undefined,
   { darazReady, hasCategory }: { darazReady: boolean; hasCategory: boolean },
 ): ItemStatus {
   if (!link) return 'new';
@@ -62,12 +87,12 @@ export function removedLinks(items: AudionicItem[], links: AudionicLinkRow[]) {
 
 const stockOf = (available: boolean) => (available ? null : 0);
 
-/** Prices are rupees as Audionic lists them; the store keeps them divided by the PKR rate. */
-function variantsOf(item: AudionicItem, rate: number) {
+/** Prices are rupees as the supplier lists them; the store keeps them divided by the PKR rate. */
+function variantsOf(item: SourceItem, rate: number) {
   return item.variants.map((v) => ({ label: v.label, price: rupeesToStored(v.pkr, rate), stock: stockOf(v.available) }));
 }
 
-export function storePayload(item: AudionicItem, rate: number, category: string) {
+export function storePayload(item: SourceItem, rate: number, category: string, brand = BRAND) {
   return {
     name: item.name,
     description: item.description,
@@ -79,14 +104,14 @@ export function storePayload(item: AudionicItem, rate: number, category: string)
     images: item.images,
     variants: variantsOf(item, rate),
     specs: item.specs,
-    brand: BRAND,
+    brand,
     featured: false,
     productType: 'standard' as const,
   };
 }
 
 /** What a re-sync refreshes on an existing product: price, availability and pictures. Texts the owner edited stay. */
-export function refreshPayload(item: AudionicItem, rate: number) {
+export function refreshPayload(item: SourceItem, rate: number) {
   return {
     price: rupeesToStored(item.pkr, rate),
     stock: stockOf(item.available),
@@ -98,6 +123,8 @@ export function refreshPayload(item: AudionicItem, rate: number) {
 }
 
 export type SyncDeps = {
+  /** The supplier this product comes from. */
+  source: SyncSource;
   /** Rupees per base price unit (Settings → PKR rate). */
   rate: number;
   daraz: {
@@ -120,10 +147,16 @@ export type SyncDeps = {
     attributes: Record<string, string>;
     known?: KnownListing;
   }) => Promise<PreparedListing>;
-  /** Ready-made Daraz text and package size for an Audionic product, if there is one (shared/audionicListing.json). */
-  knownListing?: (audionicId: string) => KnownListing | undefined;
+  /** Ready-made Daraz text and package size for a supplier product, if there is one (shared/audionicListing.json). */
+  knownListing?: (sourceId: string) => KnownListing | undefined;
   publishDaraz: (request: DarazPublishRequest) => Promise<DarazPublishResult>;
-  saveLink: (link: AudionicLinkRow) => Promise<void>;
+  /**
+   * Copies the supplier's pictures to our own storage and returns the copies. Left out, the supplier's addresses are
+   * used as they are. Called at most once per product, and only when a product is created or first sent to Daraz.
+   */
+  hostImages?: () => Promise<Pictures>;
+  /** Remembers what this product became; the page adds the supplier's id. */
+  saveLink: (link: SourceLink) => Promise<void>;
   /** Called as each half starts, so the page can show "QuantumStore…" then "Daraz…" for the product in progress. */
   onStage?: (stage: 'store' | 'daraz') => void;
   /** Receives a plain-text line for every step, so the page can show what is being tried and why something failed. */
@@ -147,9 +180,11 @@ export const STOP_AFTER_FAILURES = 3;
 /** After this many brand refusals in a row the run stops asking Daraz (QuantumStore carries on) instead of repeating it. */
 export const PAUSE_DARAZ_AFTER_BLOCKS = 5;
 
-export const BRAND_BLOCKED_MESSAGE =
+export const brandBlockedMessage = (brand: string) =>
   `Daraz refused this product even as "No Brand" (brand policy). ` +
-  `Request brand authorization for ${BRAND} in Seller Center (Brands), then sync again.`;
+  `Request brand authorization for ${brand} in Seller Center (Brands), then sync again.`;
+
+export const BRAND_BLOCKED_MESSAGE = brandBlockedMessage(BRAND);
 
 export function consecutiveBlocked(previous: number, result: SyncResult) {
   if (result.daraz === 'blocked') return previous + 1;
@@ -166,24 +201,34 @@ export function consecutiveFailures(previous: number, result: SyncResult, step: 
 const messageOf = (err: unknown, fallback: string) => getErrorMessage(err, err instanceof Error ? err.message : fallback);
 
 /**
- * Brings one Audionic product up to date on QuantumStore and Daraz. A new product is created on both; a changed
+ * Brings one supplier product up to date on QuantumStore and Daraz. A new product is created on both; a changed
  * one gets its store price, availability and pictures refreshed (Daraz is left alone). Either half can fail without
  * undoing the other, and the saved link makes the next run pick up only what is missing.
  */
 export async function syncItem(
-  item: AudionicItem,
-  link: AudionicLinkRow | undefined,
+  item: SourceItem,
+  link: SourceLink | undefined,
   deps: SyncDeps,
 ): Promise<SyncResult> {
   const result: SyncResult = { store: 'unchanged', daraz: 'unchanged' };
-  const sellerSku = link?.sellerSku || sellerSkuFor(item.audionicId);
+  const { source } = deps;
+  const brand = source.brand;
+  const sellerSku = link?.sellerSku || source.sellerSku;
   let productId = link?.quantumProductId;
   const darazItemId = link?.darazItemId ?? null;
   const log = (text: string, level: 'info' | 'error' = 'info') => deps.log?.(`${item.name} — ${text}`, level);
+  let hosted: Promise<Pictures> | undefined;
+  const pictures = () => {
+    if (!deps.hostImages) return Promise.resolve<Pictures>(item);
+    if (!hosted) {
+      log(`copying ${item.darazImages.length} picture${item.darazImages.length === 1 ? '' : 's'} to our storage`);
+      hosted = deps.hostImages();
+    }
+    return hosted;
+  };
 
   const save = (itemId: string | null) =>
     deps.saveLink({
-      audionicId: item.audionicId,
       quantumProductId: productId as string,
       darazItemId: itemId,
       sellerSku,
@@ -196,7 +241,10 @@ export async function syncItem(
   try {
     if (link && (link.sourcePkr !== item.pkr || link.available !== item.available)) {
       log(`QuantumStore: updating the existing product to Rs ${item.pkr.toLocaleString()}${item.available ? '' : ' (sold out)'}`);
-      if (await deps.updateProduct(link.quantumProductId, refreshPayload(item, deps.rate))) {
+      const refresh = refreshPayload(item, deps.rate);
+      // Copied pictures stay as they are; only the supplier's own addresses are refreshed.
+      const payload = deps.hostImages ? { price: refresh.price, stock: refresh.stock, variants: refresh.variants } : refresh;
+      if (await deps.updateProduct(link.quantumProductId, payload)) {
         result.store = 'refreshed';
         log('QuantumStore: updated');
       } else {
@@ -207,7 +255,8 @@ export async function syncItem(
     if (!productId) {
       log(`QuantumStore: creating the product at Rs ${item.pkr.toLocaleString()} (category ${item.storeCategory})`);
       const category = await deps.ensureCategory(item.storeCategory);
-      productId = (await deps.createProduct(storePayload(item, deps.rate, category)))._id;
+      const shown = { ...item, ...(await pictures()) };
+      productId = (await deps.createProduct(storePayload(shown, deps.rate, category, brand)))._id;
       result.store = 'created';
       log(`QuantumStore: created (${productId})`);
     }
@@ -233,7 +282,7 @@ export async function syncItem(
     log(`Daraz: already listed (item ${darazItemId}), not touched`);
     return result;
   }
-  if (!item.available) return skip('Sold out on Audionic');
+  if (!item.available) return skip(`Sold out on ${source.label}`);
   if (deps.daraz.pausedReason) return skip(deps.daraz.pausedReason);
   if (!deps.daraz.ready) return skip('Daraz is not connected');
   if (!deps.daraz.category) return skip(`Choose a Daraz category for ${item.type}`);
@@ -243,7 +292,7 @@ export async function syncItem(
     const { id: categoryId, path } = deps.daraz.category;
     const quantity = String(DARAZ_QUANTITY);
     log(`Daraz: trying — category ${path}`);
-    const known = deps.knownListing?.(item.audionicId);
+    const known = deps.knownListing?.(source.id);
     log(
       known
         ? 'Daraz: using the ready-made description and package size; the AI only fills any other required fields'
@@ -251,7 +300,7 @@ export async function syncItem(
     );
     const prepared = await deps.prepareDaraz({
       name: item.name,
-      brand: BRAND,
+      brand,
       description: item.description,
       specs: item.specs,
       categoryId,
@@ -268,26 +317,27 @@ export async function syncItem(
     );
     const problem = darazProblem(plan, price, quantity);
     if (problem) throw new Error(problem);
-    // Audionic's own text is often one line; Daraz wants at least 30 words, so add the AI text and the specs.
+    // The supplier's own text is often one line; Daraz wants at least 30 words, so add the AI text and the specs.
     const description = descriptionForDaraz({ description: item.description, aiDescription: plan.aiDescription, specs: item.specs });
     const tooShort = descriptionProblem(description);
     if (tooShort) throw new Error(tooShort);
 
+    const darazImages = (await pictures()).darazImages;
     const darazAmount = darazPrice(plan, price);
     log(
-      `Daraz: sending — Rs ${darazAmount.toLocaleString()} (Audionic Rs ${item.pkr.toLocaleString()} + commission), quantity ${DARAZ_QUANTITY}, SKU ${sellerSku}, ${item.darazImages.length} image${item.darazImages.length === 1 ? '' : 's'}`,
+      `Daraz: sending — Rs ${darazAmount.toLocaleString()} (${source.label} Rs ${item.pkr.toLocaleString()} + commission), quantity ${DARAZ_QUANTITY}, SKU ${sellerSku}, ${darazImages.length} image${darazImages.length === 1 ? '' : 's'}`,
     );
     const published = await deps.publishDaraz({
       quantumProductId: productId,
       categoryId,
       name: item.name,
       description,
-      brand: BRAND,
+      brand,
       sellerSku,
       quantity: DARAZ_QUANTITY,
       price: darazAmount,
       specialPrice: null,
-      images: item.darazImages,
+      images: darazImages,
       specs: item.specs,
       package: {
         weight: Number(plan.weight),
@@ -307,8 +357,9 @@ export async function syncItem(
     const message = messageOf(err, 'Daraz refused the listing');
     if (isBrandNotAuthorized(message)) {
       // The server already retried once as "No Brand"; if Daraz still refuses, nothing else is attempted.
-      log(`Daraz: BLOCKED — ${BRAND_BLOCKED_MESSAGE}`, 'error');
-      return { ...result, daraz: 'blocked', darazMessage: BRAND_BLOCKED_MESSAGE };
+      const blocked = brandBlockedMessage(brand);
+      log(`Daraz: BLOCKED — ${blocked}`, 'error');
+      return { ...result, daraz: 'blocked', darazMessage: blocked };
     }
     log(`Daraz: FAILED — ${message}`, 'error');
     return { ...result, daraz: 'failed', darazMessage: message };
@@ -316,13 +367,13 @@ export async function syncItem(
 }
 
 /**
- * A product Audionic no longer lists: mark it sold out on QuantumStore (Daraz is left alone) and remember that,
+ * A product the supplier no longer lists: mark it sold out on QuantumStore (Daraz is left alone) and remember that,
  * so it is not offered again on the next run.
  */
-export async function markSoldOut(
-  link: AudionicLinkRow,
+export async function markSoldOut<L extends SourceLink>(
+  link: L,
   setStock: (productId: string, stock: number) => Promise<void>,
-  saveLink: (link: AudionicLinkRow) => Promise<void>,
+  saveLink: (link: L) => Promise<void>,
 ) {
   await setStock(link.quantumProductId, 0);
   await saveLink({ ...link, available: false });

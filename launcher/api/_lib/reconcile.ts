@@ -29,7 +29,7 @@ export type SyncPlan = {
   removeFromStore: Array<{ listing: ListingRef; product: StoreProduct }>;
   /** Tracked, but gone from both sides: the stale tracking row is dropped. */
   dropLinks: ListingRef[];
-  /** Left alone: products the Audionic page manages. */
+  /** Left alone: products the Audionic and CamSham pages manage. */
   managed: number;
   /** Left alone: QuantumStore products that are sold out (nothing to list on Daraz). */
   soldOut: number;
@@ -42,7 +42,7 @@ export const nameKey = (name: string) => name.toLowerCase().replace(/[^\p{L}\p{N
  * Works out what the sync would do. Nothing here touches the network: it only compares what is on QuantumStore, what is
  * on Daraz and what the Launcher has recorded.
  *
- * `managedProductIds` belong to the Audionic page, which has its own sync and rules (sold-out items stay on QuantumStore
+ * `managedProductIds` belong to the Audionic and CamSham pages, which have their own sync and rules (sold-out items stay on QuantumStore
  * only, for example), so they are never listed, linked or removed here.
  */
 export function planSync(input: {

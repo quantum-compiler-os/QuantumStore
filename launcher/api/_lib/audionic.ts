@@ -145,7 +145,7 @@ const ENTITIES: Record<string, string> = {
   bull: '•',
 };
 
-function decodeEntities(text: string) {
+export function decodeEntities(text: string) {
   return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, code: string) => {
     if (code[0] !== '#') return ENTITIES[code.toLowerCase()] ?? match;
     const n = code[1].toLowerCase() === 'x' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
@@ -222,7 +222,7 @@ function splitKeyValue(text: string) {
 const normalize = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '');
 
 // Headings that title a whole block rather than name one spec.
-const SECTION_TITLE = /^(specs?|specifications?|(technical|product) specifications?|(product )?description|about the product|overview)$/i;
+const SECTION_TITLE = /^((key )?features|specs?|specifications?|(technical|product) specifications?|(product )?description|about the product|overview)$/i;
 // Audionic ends most descriptions with an FAQ about their own products and store.
 const isFaqLine = (text: string) =>
   /^(faqs?|frequently asked questions)\b/i.test(text) || text.endsWith('?') || /^Q\s*[:.)]/i.test(text) || /\?\s*A\s*[:.)]/.test(text);

@@ -69,6 +69,11 @@ export async function getDarazConnectUrl() {
   return data.url;
 }
 
+/** Counts the wait down in the terminal running the Launcher too; aborting `signal` ends it there. Never fails the caller. */
+export function terminalCountdown(seconds: number, label: string, signal: AbortSignal) {
+  launcherApi.post('/ai/countdown', { seconds, label }, { signal, timeout: 0 }).catch(() => undefined);
+}
+
 export type CategorySuggestion = { id: number; name: string; path: string };
 
 export async function suggestDarazCategories(input: { name: string; brand?: string; description?: string }) {

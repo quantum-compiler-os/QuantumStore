@@ -48,7 +48,7 @@ export type SyncDeps = {
     save: (listing: StoredListing) => Promise<void>;
     removeByItem: (darazItemId: string) => Promise<void>;
   };
-  /** QuantumStore product ids that the Audionic page manages. */
+  /** QuantumStore product ids that the Audionic and CamSham pages manage. */
   managedProductIds: () => Promise<string[]>;
   log: (text: string) => void;
 };
@@ -195,7 +195,7 @@ export async function runSync(deps: SyncDeps, { applyRemovals }: { applyRemovals
   log(
     `Found ${plan.importToStore.length} to import from Daraz, ${plan.listOnDaraz.length} to list on Daraz, ${plan.link.length} to link, ` +
       `${plan.removeFromDaraz.length + plan.removeFromStore.length} to remove, ${plan.dropLinks.length} stale records` +
-      (plan.managed ? `; ${plan.managed} Audionic products are left to the Audionic page` : ''),
+      (plan.managed ? `; ${plan.managed} Audionic and CamSham products are left to their own pages` : ''),
   );
 
   const needsLeaves = plan.importToStore.length || plan.listOnDaraz.length;

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_MODEL, chatJson, groqConfigured, rateLimitWait } from '../api/_lib/groq';
+import { DEFAULT_MODEL, chatJson, groqConfigured, groqKeys, rateLimitWait } from '../api/_lib/groq';
 
 const messages = [{ role: 'user' as const, content: 'hi' }];
 
@@ -84,6 +84,37 @@ describe('rate limits', () => {
       status: 429,
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('switches to the second key as soon as the first reaches its limit, and keeps using it', async () => {
+    const auth = (call: unknown[]) => ((call[1] as RequestInit).headers as Record<string, string>).Authorization;
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('{}', { status: 429 }))
+      .mockResolvedValueOnce(ok())
+      .mockResolvedValueOnce(ok());
+    const env = { GROQ_API_KEY: 'one', GROQ_API_KEY_2: 'two' };
+    const rotation = { active: 0 };
+    expect(await chatJson(messages, { env, fetchImpl, rotation, rateLimitWaitMs: 0 })).toEqual({ a: 1 });
+    expect(fetchImpl.mock.calls.map(auth)).toEqual(['Bearer one', 'Bearer two']);
+    await chatJson(messages, { env, fetchImpl, rotation, rateLimitWaitMs: 0 });
+    expect(auth(fetchImpl.mock.calls[2])).toBe('Bearer two');
+  });
+
+  it('waits only when every key is limited', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('{}', { status: 429 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 429 }))
+      .mockResolvedValueOnce(ok());
+    const env = { GROQ_API_KEY: 'one', GROQ_API_KEY_2: 'two' };
+    expect(await chatJson(messages, { env, fetchImpl, rotation: { active: 0 }, rateLimitWaitMs: 0 })).toEqual({ a: 1 });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it('reads the extra keys and skips blank ones', () => {
+    expect(groqKeys({ GROQ_API_KEY: 'a', GROQ_API_KEY_2: ' ', GROQ_API_KEY_3: 'c' }).map((k) => k.name)).toEqual(['GROQ_API_KEY', 'GROQ_API_KEY_3']);
+    expect(groqConfigured({ GROQ_API_KEY_2: 'b' })).toBe(true);
   });
 
   it('honours retry-after but never waits longer than ten seconds', () => {

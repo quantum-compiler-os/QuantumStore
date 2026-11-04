@@ -1,4 +1,5 @@
 import { HttpError } from './http.js';
+import { logLine } from './log.js';
 import { failureReason, withRetry } from './net.js';
 import { parseJsonObject, type ChatMessage } from './categorySuggest.js';
 
@@ -6,10 +7,26 @@ const ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 export const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 
 export function groqConfigured(env: Record<string, string | undefined> = process.env) {
-  return Boolean(env.GROQ_API_KEY);
+  return groqKeys(env).length > 0;
 }
 
+type GroqKey = { name: string; value: string };
+
+/** GROQ_API_KEY, then GROQ_API_KEY_2 … GROQ_API_KEY_9 (blank ones skipped). When one reaches its limit the next is used. */
+export function groqKeys(env: Record<string, string | undefined> = process.env): GroqKey[] {
+  const names = ['GROQ_API_KEY', ...Array.from({ length: 8 }, (_, i) => `GROQ_API_KEY_${i + 2}`)];
+  return names.flatMap((name) => {
+    const value = env[name]?.trim();
+    return value ? [{ name, value }] : [];
+  });
+}
+
+/** Which key to start with: the one that answered last, so a limited key is not asked again first. */
+const sharedRotation = { active: 0 };
+
 type Options = {
+  /** Overridable so tests start from the first key. */
+  rotation?: { active: number };
   timeoutMs?: number;
   /** Answer budget; the short classification calls keep the default, writing a listing needs more. */
   maxTokens?: number;
@@ -29,9 +46,9 @@ export function rateLimitWait(response: Response, fallback: number) {
 
 /** One Groq chat completion in JSON mode, returned as a parsed object. The key and model come from the environment. */
 export async function chatJson(messages: ChatMessage[], options: Options = {}) {
-  const { timeoutMs = 20_000, maxTokens = 1024, env = process.env, fetchImpl = fetch, rateLimitWaitMs = 3_000 } = options;
-  const apiKey = env.GROQ_API_KEY;
-  if (!apiKey) throw new HttpError(404, 'AI suggestions are off: set GROQ_API_KEY in the Launcher environment');
+  const { timeoutMs = 20_000, maxTokens = 1024, env = process.env, fetchImpl = fetch, rateLimitWaitMs = 3_000, rotation = sharedRotation } = options;
+  const keys = groqKeys(env);
+  if (!keys.length) throw new HttpError(404, 'AI suggestions are off: set GROQ_API_KEY in the Launcher environment');
 
   const model = env.GROQ_MODEL || DEFAULT_MODEL;
   const payload = JSON.stringify({
@@ -44,25 +61,34 @@ export async function chatJson(messages: ChatMessage[], options: Options = {}) {
     ...(model.startsWith('openai/gpt-oss') ? { reasoning_effort: 'low' } : {}),
     response_format: { type: 'json_object' },
   });
-  const send = () =>
+  const send = (key: GroqKey) =>
     withRetry(
       () =>
         fetchImpl(ENDPOINT, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key.value}` },
           body: payload,
           signal: AbortSignal.timeout(timeoutMs),
         }),
       // A dropped connection is retried once; a slow answer is not (that would double the wait).
       { retries: 1, retryOn: (err) => failureReason(err) !== 'timed out' },
     );
+  let key = keys[rotation.active % keys.length];
   let response: Response;
   try {
-    response = await send();
+    response = await send(key);
+    // This key reached its limit: carry on with the next one straight away, and keep using whichever answers.
+    for (let tried = 1; response.status === 429 && tried < keys.length; tried += 1) {
+      const next = keys[(rotation.active + 1) % keys.length];
+      logLine(`groq: ${key.name} reached its rate limit, switching to ${next.name}`);
+      rotation.active = (rotation.active + 1) % keys.length;
+      key = next;
+      response = await send(key);
+    }
     if (response.status === 429) {
-      // Listing many products in a row can hit Groq's per-minute limit: wait as asked and try once more.
+      // Every key is limited (Groq's per-minute limit): wait as asked and try once more.
       await new Promise((resolve) => setTimeout(resolve, rateLimitWait(response, rateLimitWaitMs)));
-      response = await send();
+      response = await send(key);
     }
   } catch (err) {
     const reason = failureReason(err);
@@ -73,7 +99,7 @@ export async function chatJson(messages: ChatMessage[], options: Options = {}) {
   }
 
   if (response.status === 401 || response.status === 403) {
-    throw new HttpError(502, 'Groq rejected the API key — check GROQ_API_KEY');
+    throw new HttpError(502, `Groq rejected the API key — check ${key.name}`);
   }
   if (response.status === 429) throw new HttpError(429, 'Groq rate limit reached — try again in a moment');
   if (!response.ok) {

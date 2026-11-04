@@ -56,3 +56,10 @@ export type AudionicLink = {
 export async function audionicCollection() {
   return (await getDb()).collection<AudionicLink>('launcher_audionic');
 }
+
+/** The same for CamSham products (camsham.pk), keyed by CamSham's product id. */
+export type CamshamLink = Omit<AudionicLink, 'audionicId'> & { camshamId: string };
+
+export async function camshamCollection() {
+  return (await getDb()).collection<CamshamLink>('launcher_camsham');
+}

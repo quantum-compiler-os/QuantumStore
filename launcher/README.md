@@ -27,7 +27,7 @@ Tokens are stored in the `launcher_daraz` collection and refreshed automatically
 
 Set `GROQ_API_KEY` in `launcher/.env` (create one at https://console.groq.com/keys; `GROQ_MODEL` is optional, default `openai/gpt-oss-120b`) and restart. **Publish** is a single button that sends the product to QuantumStore and, once Daraz is connected, to Daraz as well. When you press it, the AI picks the Daraz category (unless you chose one), writes the English name, description and highlights, estimates the package size of one unit, and fills the category's other required fields (for example Age Group). Nothing you typed is overwritten; open **Daraz details** to review or change anything. If Daraz requires an ISBN/ISSN and the AI is not certain of the real one, a random well-formed number is generated (it may not match the real book; type the real one under **Daraz details** to override it). Without a Groq key the Daraz category and package size are entered by hand.
 
-The key stays on the server. Groq never receives the whole category tree: one call picks the Daraz group and keywords, the group's categories are ranked locally, and a second call picks from a shortlist of 40. Every answer is checked against the real category list, so an invented category can't be selected. Each suggestion costs two short Groq requests.
+Spare keys can go in `GROQ_API_KEY_2` … `GROQ_API_KEY_9`: when a key reaches Groq's rate limit the next one is used straight away (and kept until it is limited too), so a long sync only waits when every key is limited. The key stays on the server. Groq never receives the whole category tree: one call picks the Daraz group and keywords, the group's categories are ranked locally, and a second call picks from a shortlist of 40. Every answer is checked against the real category list, so an invented category can't be selected. Each suggestion costs two short Groq requests.
 
 ## Publish a product
 
@@ -55,6 +55,15 @@ Notes:
 
 Try it with two or three products first (untick the rest), check them on both sites, then sync the rest.
 
+## CamSham sync
+
+**CamSham** (side menu) reads camsham.pk's public WooCommerce catalog and works like the Audionic page (same table, log and re-sync rules; links are kept in `launcher_camsham`).
+
+- **Prices.** QuantumStore gets CamSham's price exactly; Daraz gets it through the commission formula. Products CamSham shows without a price (Rs 0) or without a picture are skipped.
+- **Categories.** Each product gets a type from its CamSham categories (Lenses, Tripods, Microphones…). One Daraz category is chosen per type (AI suggestion, built-in fallback, or your pick), and the **QuantumStore category is the name of that Daraz category**, so both shops file the product the same way.
+- **Pictures.** CamSham serves many pictures as webp, which Daraz refuses, so before a product is created the Launcher downloads its pictures (through `/launcher-api/camsham/image`, limited to camsham.pk's upload folder) and uploads them through the backend, which stores JPEG copies. Both shops use those copies. This needs the backend on Google Drive storage, like Publish.
+- **Daraz.** Brand is CamSham's brand for the product (Canon, Sony, DJI…), SKU `CS-<id>`, quantity 10. Brands you are not authorized for fall back to "No Brand" or are refused, as on the Audionic page.
+
 ## Sync QuantumStore and Daraz
 
 The **Sync** page (or `npm run sync` in a second terminal while the Launcher runs) compares both shops with the Launcher's own
@@ -72,7 +81,7 @@ list of what it put on Daraz:
 Removals are previewed first: `npm run sync` only does the additions, `npm run sync -- --apply` (or **Sync and remove** on the
 page, after a confirmation) also removes. `npm run sync -- --check` changes nothing. The run stops without touching anything if
 one side answers with an empty list while products are tracked, and refuses removals when most tracked products seem to have
-vanished at once. Audionic products are left to the Audionic page. Every step is logged on the page and in the terminal.
+vanished at once. Audionic and CamSham products are left to their own pages. Every step is logged on the page and in the terminal.
 
 ## Layout
 
@@ -84,7 +93,9 @@ vanished at once. Audionic products are left to the Audionic page. Every step is
 | `api/sync/*` | Serverless endpoints: scan (preview), run, log |
 | `api/daraz/*` | Serverless endpoints: connect, callback, exchange, status, categories, attributes, listings, publish, update-images, update-offer (price and stock), remove |
 | `api/audionic/*`, `api/_lib/audionic.ts` | Audionic catalog reader (pure, unit-tested) and the link table endpoints |
-| `src/pages/admin/Audionic.tsx`, `src/features/audionic/` | The Audionic sync page and its per-product sync |
+| `src/pages/admin/Audionic.tsx`, `src/features/audionic/` | The Audionic sync page and its per-product sync (shared by every supplier) |
+| `api/camsham/*`, `api/_lib/camsham.ts`, `src/pages/admin/CamSham.tsx`, `src/features/camsham/` | CamSham catalog reader, picture pass-through, link table, page |
+| `src/features/suppliers/SupplierSyncPage.tsx` | The supplier sync page used by Audionic and CamSham |
 | `api/_lib/darazCore.ts` | Pure helpers: request signing, XML builders, image URL rewrite (unit-tested) |
 | `api/_lib/daraz.ts` | Daraz HTTP client, token refresh |
 | `tests/` | `npm test` |

@@ -8,6 +8,7 @@ import {
   STOP_AFTER_FAILURES,
   consecutiveBlocked,
   adoptedLinks,
+  audionicSource,
   consecutiveFailures,
   itemStatus,
   markSoldOut,
@@ -51,6 +52,7 @@ const soldOut = toItem({ ...earbuds, id: 102, variants: [{ title: 'Default Title
 
 function deps(overrides: Partial<SyncDeps> = {}): SyncDeps {
   return {
+    source: audionicSource(item),
     rate: RATE,
     daraz: { ready: true, category: AUDIO_CATEGORY },
     ensureCategory: vi.fn(async (name: string) => name),
@@ -130,7 +132,7 @@ describe('syncItem: a new item', () => {
     const d = deps();
     await syncItem(item, undefined, d);
     const saved = (d.saveLink as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
-    expect(saved[0]).toMatchObject({ audionicId: '101', quantumProductId: 'prod-1', darazItemId: null, sourcePkr: 3499, available: true });
+    expect(saved[0]).toMatchObject({ quantumProductId: 'prod-1', darazItemId: null, sourcePkr: 3499, available: true });
     expect(saved[1]).toMatchObject({ darazItemId: '9001', sellerSku: 'AUD-101' });
   });
 
@@ -503,5 +505,53 @@ describe('ready-made Daraz data', () => {
     await syncItem(item, undefined, d);
     expect((d.prepareDaraz as ReturnType<typeof vi.fn>).mock.calls[0][0]).not.toHaveProperty('known');
     expect(lines.some((l) => l.includes('asking the AI for the English texts'))).toBe(true);
+  });
+});
+
+describe('another supplier (CamSham)', () => {
+  const camsham = { id: '20320', label: 'CamSham', brand: 'Canon', sellerSku: 'CS-20320' };
+  const copies = {
+    image: 'https://drive/cover.jpg',
+    thumbnail: 'https://drive/cover-thumb.webp',
+    images: ['https://drive/side.jpg'],
+    darazImages: ['https://drive/cover.jpg', 'https://drive/side.jpg'],
+  };
+
+  it('uses its brand, SKU and name, and lists the copied pictures on both shops', async () => {
+    const hostImages = vi.fn(async () => copies);
+    const lines: string[] = [];
+    const d = deps({ source: camsham, hostImages, log: (t) => lines.push(t) });
+    const result = await syncItem(item, undefined, d);
+    expect(result).toMatchObject({ store: 'created', daraz: 'listed' });
+    expect(hostImages).toHaveBeenCalledTimes(1); // once for both shops
+    const [payload] = (d.createProduct as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(payload).toMatchObject({ brand: 'Canon', image: copies.image, thumbnail: copies.thumbnail, images: copies.images });
+    const [request] = (d.publishDaraz as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(request).toMatchObject({ brand: 'Canon', sellerSku: 'CS-20320', images: copies.darazImages });
+    expect(lines.find((l) => l.includes('Daraz: sending'))).toMatch(/CamSham Rs 3,499 \+ commission/);
+  });
+
+  it('names itself when an item is sold out or the brand is refused', async () => {
+    const sold = await syncItem(soldOut, undefined, deps({ source: camsham }));
+    expect(sold.darazMessage).toBe('Sold out on CamSham');
+    const policy = 'Failed by Policy(R_5498925): Apologies ! You are not authorized to sell this brand.';
+    const blocked = await syncItem(item, undefined, deps({ source: camsham, publishDaraz: vi.fn(async () => Promise.reject(new Error(policy))) }));
+    expect(blocked.darazMessage).toMatch(/brand authorization for Canon/);
+  });
+
+  it('keeps the copied pictures when a price change refreshes the store product', async () => {
+    const hostImages = vi.fn(async () => copies);
+    const d = deps({ source: camsham, hostImages });
+    await syncItem(item, link({ sourcePkr: 3000 }), d);
+    const [, payload] = (d.updateProduct as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(Object.keys(payload).sort()).toEqual(['price', 'stock', 'variants']);
+    expect(hostImages).not.toHaveBeenCalled();
+  });
+
+  it('does not create the store product when no picture could be copied', async () => {
+    const d = deps({ source: camsham, hostImages: vi.fn(async () => Promise.reject(new Error('Could not copy any picture'))) });
+    const result = await syncItem(item, undefined, d);
+    expect(result).toMatchObject({ store: 'failed', storeMessage: 'Could not copy any picture' });
+    expect(d.createProduct).not.toHaveBeenCalled();
   });
 });

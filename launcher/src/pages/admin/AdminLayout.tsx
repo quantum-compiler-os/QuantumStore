@@ -33,6 +33,12 @@ const ICON_PATHS: Record<string, ReactNode> = {
       <rect x="17.5" y="14" width="4" height="6" rx="1.5" />
     </>
   ),
+  camsham: (
+    <>
+      <path d="M4 8h3l2-3h6l2 3h3v11H4Z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </>
+  ),
   sync: (
     <>
       <path d="M4 12a8 8 0 0 1 14-5.3L20 9" />
@@ -170,6 +176,7 @@ export default function AdminLayout() {
     { to: '/publish', label: 'Publish', icon: 'publish' },
     { to: '/products', label: 'Products', icon: 'products' },
     { to: '/audionic', label: 'Audionic', icon: 'audionic' },
+    { to: '/camsham', label: 'CamSham', icon: 'camsham' },
     { to: '/sync', label: 'Sync', icon: 'sync' },
     { to: '/categories', label: 'Categories', icon: 'categories' },
     { to: '/orders', label: 'Orders', icon: 'orders' },
