@@ -12,7 +12,8 @@ export async function discoverStores(focus: string, count: number, exclude: stri
 
 /** Whether a shop can be fetched from: what it runs on and its currency, or an error saying why not. */
 export async function checkStore(store: string) {
-  const { data } = await launcherApi.get<{ store: StoreInfo }>('/stores/check', { params: { store }, timeout: 90_000 });
+  // Up to two minutes of waiting when the shop limits requests.
+  const { data } = await launcherApi.get<{ store: StoreInfo }>('/stores/check', { params: { store }, timeout: 240_000 });
   return data.store;
 }
 
@@ -28,10 +29,10 @@ export type StoreLinkRow = {
 
 /** A shop's current catalog as listable items (its own prices, no markup), and the links from earlier syncs. */
 export async function getStoreCatalog(store: string) {
-  // A big shop is dozens of pages: give the server time to read them all.
+  // A big shop is dozens of pages, and a shop that limits requests is waited for: give the server time.
   const { data } = await launcherApi.get<{ store: StoreInfo; fetched: number; items: StoreItem[]; links: StoreLinkRow[] }>('/stores/catalog', {
     params: { store },
-    timeout: 180_000,
+    timeout: 600_000,
   });
   return data;
 }

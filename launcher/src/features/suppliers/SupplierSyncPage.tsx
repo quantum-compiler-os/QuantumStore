@@ -474,7 +474,6 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
     setNotice('');
     // The Auto finder's Stop may already have been pressed while this shop's catalog was read.
     stopRef.current = Boolean(auto?.signal.aborted);
-    let stopReason = '';
     addLog(
       `Starting: ${list.length} products · ${darazReady ? 'Daraz connected' : 'Daraz NOT connected (QuantumStore only)'} · ` +
         types.map((type) => `${type} → ${typeCategories[type]?.path || 'no category'}`).join(' | '),
@@ -554,8 +553,8 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
         addLog(`${darazPausedReason}. The remaining products only go to QuantumStore.`, 'error');
       }
 
-      // The run does not stop itself on product failures (only the Stop button, or broken picture storage above, ends it
-      // early); a streak is flagged once in the log so a broken connection or setting is noticed.
+      // The run never stops itself (only the Stop button ends it early); a streak of failures is flagged once in the
+      // log so a broken connection or setting is noticed.
       storeFailures = consecutiveFailures(storeFailures, result, 'store');
       darazFailures = consecutiveFailures(darazFailures, result, 'daraz');
       if (storeFailures === STOP_AFTER_FAILURES) addLog(`Warning: QuantumStore refused ${STOP_AFTER_FAILURES} products in a row (${result.storeMessage}). Carrying on; press Stop if this needs fixing first.`, 'error');
@@ -569,7 +568,7 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
     );
     if (!unattended) toast.success(`${done} of ${list.length} products synced${stopped ? ' (stopped)' : ''}`);
     await Promise.all([catalog.refetch(), queryClient.invalidateQueries({ queryKey: queryKeys.products.all })]);
-    return { handled: done, total: list.length, ...tally, stopped, stopReason, leftForLater: [...leftForLater] };
+    return { handled: done, total: list.length, ...tally, stopped, leftForLater: [...leftForLater] };
   }
 
   // Auto finder: once the catalog, the Daraz status and the PKR rate are in, sync without a click and report back.

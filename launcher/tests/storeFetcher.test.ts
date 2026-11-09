@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OTHER_TYPE, detectStore, fetchStoreImage, fetchStoreItems, storeOrigin, typeFromName, wooType } from '../api/_lib/storeFetcher';
+import { OTHER_TYPE, detectStore, fetchStoreImage, fetchStoreItems, rateLimitPause, storeOrigin, typeFromName, wooType } from '../api/_lib/storeFetcher';
 import { MARKUP_PKR, shopHost, storeSku, withMarkup } from '../src/features/stores/storeFetcher';
 
 const json = (data: unknown, headers: Record<string, string> = {}) =>
@@ -96,6 +96,34 @@ describe('reading a Shopify shop', () => {
     expect(typeFromName('Max 230 Bluetooth Speaker')).toBe('Speakers');
     expect(typeFromName('Type-C to Lightning Cable 1m')).toBe('Cables');
     expect(typeFromName('Gift Voucher')).toBe(OTHER_TYPE);
+  });
+
+  it('waits for a shop that limits requests instead of failing its catalog', async () => {
+    let limited = 2;
+    const { fetchImpl, asked } = shop([
+      ['/meta.json', () => json({ currency: 'PKR' })],
+      ['/products.json?limit=1', () => json({ products: [shopifyProduct()] })],
+      [
+        '/products.json?limit=250&page=1',
+        () =>
+          limited-- > 0
+            ? new Response('local_rate_limited', { status: 429, headers: { 'retry-after': '0', 'content-type': 'text/plain' } })
+            : json({ products: [shopifyProduct()] }),
+      ],
+      ['/products.json?limit=250', () => json({ products: [] })],
+    ]);
+    const { items } = await fetchStoreItems('example.pk', fetchImpl);
+    expect(items.map((i) => i.id)).toEqual(['example.pk/7001']);
+    expect(asked.filter((url) => url.includes('page=1'))).toHaveLength(3);
+  });
+
+  it('pauses as long as the shop asks, else longer each time, never over a minute', () => {
+    const answer = (headers: Record<string, string> = {}) => new Response('', { status: 429, headers });
+    expect(rateLimitPause(answer({ 'retry-after': '5' }), 0)).toBe(5000);
+    expect(rateLimitPause(answer(), 0)).toBe(2000);
+    expect(rateLimitPause(answer(), 3)).toBe(16000);
+    expect(rateLimitPause(answer(), 10)).toBe(60000);
+    expect(rateLimitPause(answer({ 'retry-after': '3600' }), 0)).toBe(60000);
   });
 
   it('refuses a shop that prices in another currency', async () => {
