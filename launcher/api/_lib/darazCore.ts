@@ -232,13 +232,25 @@ export function buildSetImagesXml(skuId: string, urls: string[]) {
   );
 }
 
+/** What UpdatePriceQuantity can change. Sale dates are yyyy-MM-dd and only mean something next to a sale price. */
+export type PriceQuantityChange = {
+  price?: number;
+  quantity?: number;
+  salePrice?: number;
+  saleStartDate?: string;
+  saleEndDate?: string;
+};
+
 /**
  * Changes the price and/or stock of an existing item's SKU (Daraz "UpdatePriceQuantity"). Like SetImages it is
  * addressed by item id + SKU id, never by seller SKU. A field left out is left as it is on Daraz.
  */
-export function buildPriceQuantityXml(listing: { itemId: string; skuId: string }, change: { price?: number; quantity?: number }) {
+export function buildPriceQuantityXml(listing: { itemId: string; skuId: string }, change: PriceQuantityChange) {
   const fields =
     (change.price !== undefined ? tag('Price', String(change.price)) : '') +
+    (change.salePrice !== undefined ? tag('SalePrice', String(change.salePrice)) : '') +
+    (change.salePrice !== undefined && change.saleStartDate ? tag('SaleStartDate', change.saleStartDate) : '') +
+    (change.salePrice !== undefined && change.saleEndDate ? tag('SaleEndDate', change.saleEndDate) : '') +
     (change.quantity !== undefined ? tag('Quantity', String(change.quantity)) : '');
   return (
     '<?xml version="1.0" encoding="UTF-8" ?>' +
@@ -291,6 +303,50 @@ export function normalizeDarazProducts(products: unknown): DarazItem[] {
       quantity: Number(sku.quantity ?? sku.Available) || 0,
       images: [...new Set(images)],
     });
+  }
+  return out;
+}
+
+/** One SKU (variation) of a Daraz item with its prices. Price changes must reach every SKU, not only the first. */
+export type DarazSku = {
+  itemId: string;
+  skuId: string;
+  sellerSku: string;
+  /** The item's name, for reports. */
+  name: string;
+  price: number;
+  /** The sale price, or null when the SKU has none. */
+  specialPrice: number | null;
+  /** The sale's first and last day (yyyy-MM-dd), or '' when Daraz does not say. */
+  specialFrom: string;
+  specialTo: string;
+};
+
+const dateOnly = (value: unknown) => /^\d{4}-\d{2}-\d{2}/.exec(text(value))?.[0] ?? '';
+
+/** Every non-deleted SKU of every product from Daraz "GetProducts" (see normalizeDarazProducts for the one-SKU view). */
+export function normalizeDarazSkus(products: unknown): DarazSku[] {
+  const out: DarazSku[] = [];
+  for (const raw of Array.isArray(products) ? (products as Array<Record<string, any>>) : []) {
+    const itemId = text(raw?.item_id);
+    if (!itemId) continue;
+    const name = text(raw.attributes?.name).trim();
+    for (const sku of Array.isArray(raw.skus) ? (raw.skus as Array<Record<string, any>>) : []) {
+      if (String(sku?.Status ?? sku?.status ?? '').toLowerCase() === 'deleted') continue;
+      const skuId = text(sku?.SkuId ?? sku?.sku_id);
+      if (!skuId) continue;
+      const special = Number(sku.special_price);
+      out.push({
+        itemId,
+        skuId,
+        sellerSku: text(sku.SellerSku ?? sku.seller_sku),
+        name,
+        price: Number(sku.price) || 0,
+        specialPrice: special > 0 ? special : null,
+        specialFrom: dateOnly(sku.special_from_date ?? sku.special_from_time),
+        specialTo: dateOnly(sku.special_to_date ?? sku.special_to_time),
+      });
+    }
   }
   return out;
 }

@@ -10,12 +10,15 @@ import {
   flattenCategoryTree,
   normalizeAttributes,
   normalizeDarazProducts,
+  normalizeDarazSkus,
   removeProductAttempts,
   signRequest,
   type DarazAttribute,
   type DarazCategoryLeaf,
   type DarazItem,
   type DarazProductInput,
+  type DarazSku,
+  type PriceQuantityChange,
 } from './darazCore.js';
 
 /** A failed Daraz call; surfaces to the client as a 422 carrying Daraz's own message. */
@@ -211,26 +214,36 @@ export async function setImages(skuId: string, hostedUrls: string[], accessToken
 const PRODUCTS_PER_PAGE = 50;
 const MAX_PRODUCT_PAGES = 100;
 
-/** Every item in the seller's Daraz shop (all statuses except deleted), read a page at a time. */
-export async function listDarazProducts(accessToken: string) {
-  const items: DarazItem[] = [];
+/** Every product in the seller's Daraz shop (all statuses), as Daraz returns it, read a page at a time. */
+async function readAllProducts(accessToken: string) {
+  const all: unknown[] = [];
   for (let page = 0; page < MAX_PRODUCT_PAGES; page += 1) {
     const body = await call<{ data?: { products?: unknown[]; total_products?: number } }>('/products/get', {
       accessToken,
       params: { filter: 'all', limit: String(PRODUCTS_PER_PAGE), offset: String(page * PRODUCTS_PER_PAGE) },
     });
     const products = body.data?.products ?? [];
-    items.push(...normalizeDarazProducts(products));
+    all.push(...products);
     const total = Number(body.data?.total_products) || 0;
-    if (products.length < PRODUCTS_PER_PAGE || (total && (page + 1) * PRODUCTS_PER_PAGE >= total)) return items;
+    if (products.length < PRODUCTS_PER_PAGE || (total && (page + 1) * PRODUCTS_PER_PAGE >= total)) return all;
   }
   throw new DarazError('Daraz returned more products than the Launcher is willing to read in one go');
 }
 
-/** Changes the price and/or stock shown on an existing listing. */
+/** Every item in the seller's Daraz shop (all statuses except deleted), first SKU only. */
+export async function listDarazProducts(accessToken: string): Promise<DarazItem[]> {
+  return normalizeDarazProducts(await readAllProducts(accessToken));
+}
+
+/** Every SKU of every item in the seller's Daraz shop, with its prices. */
+export async function listDarazSkus(accessToken: string): Promise<DarazSku[]> {
+  return normalizeDarazSkus(await readAllProducts(accessToken));
+}
+
+/** Changes the price, sale price and/or stock shown on an existing listing. */
 export async function updatePriceQuantity(
   listing: { itemId: string; skuId: string },
-  change: { price?: number; quantity?: number },
+  change: PriceQuantityChange,
   accessToken: string,
 ) {
   await call('/product/price_quantity/update', {

@@ -147,6 +147,7 @@ export default function AdminLayout() {
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [qaCount, setQaCount] = useState(0);
+  const [toShipCount, setToShipCount] = useState(0);
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -162,6 +163,14 @@ export default function AdminLayout() {
       api
         .get('/questions/unanswered/count')
         .then((res: { data: { count?: number } }) => setQaCount(res.data.count || 0))
+        .catch(() => {});
+      // Orders that sold but have not shipped yet: the Orders link shows how many are waiting for an AWB.
+      const count = (status: string) =>
+        api
+          .get('/orders', { params: { status, page: 1, limit: 1 } })
+          .then((res: { data: { total?: number } }) => Number(res.data.total) || 0);
+      Promise.all([count('pending'), count('confirmed')])
+        .then(([pending, confirmed]) => setToShipCount(pending + confirmed))
         .catch(() => {});
     });
   }, [location.pathname]);
@@ -179,7 +188,7 @@ export default function AdminLayout() {
     { to: '/camsham', label: 'CamSham', icon: 'camsham' },
     { to: '/sync', label: 'Sync', icon: 'sync' },
     { to: '/categories', label: 'Categories', icon: 'categories' },
-    { to: '/orders', label: 'Orders', icon: 'orders' },
+    { to: '/orders', label: 'Orders', icon: 'orders', badge: toShipCount },
     { to: '/questions', label: 'Q&A', icon: 'qa', badge: qaCount },
     ...(isAdmin ? [{ to: '/coupons', label: 'Coupons', icon: 'coupons' }] : []),
     ...(isAdmin ? [{ to: '/gift-cards', label: 'Gift cards', icon: 'gift' }] : []),

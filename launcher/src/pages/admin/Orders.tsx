@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../../api/client';
 import type { Order } from '../../api/types';
@@ -6,11 +6,37 @@ import { useToast } from '../../context/ToastContext';
 import { useAdminOrders } from '../../hooks/useOrders';
 import { queryKeys } from '../../hooks/queryKeys';
 import { getErrorMessage } from '../../utils/errors';
+import { formatOrderDate, loadOverrides, orderRef } from '../../features/awb/awbData';
+
+// The label (barcode and QR libraries) only loads when an AWB is opened.
+const AwbDialog = lazy(() => import('../../features/awb/AwbDialog'));
 
 const statuses = ['all', 'pending', 'confirmed', 'shipped', 'delivered', 'cancelled'];
 
 function orderTotal(order: Order) {
   return Number(order.totalAmount ?? order.total ?? 0);
+}
+
+/** The products an order sold, with their picture, so the list shows what to pack without opening each order. */
+function SoldItems({ order }: { order: Order }) {
+  return (
+    <ul className="order-items">
+      {order.items.map((item, index) => (
+        <li key={`${order._id}-${index}`}>
+          {item.image ? (
+            <img src={item.image} alt="" loading="lazy" onError={(e) => (e.currentTarget.style.visibility = 'hidden')} />
+          ) : (
+            <span className="order-item-thumb" aria-hidden="true" />
+          )}
+          <span className="order-item-name">
+            {item.name}
+            {item.variantLabel ? ` (${item.variantLabel})` : ''}
+          </span>
+          <strong>× {item.quantity}</strong>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 export default function Orders() {
@@ -22,12 +48,21 @@ export default function Orders() {
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Order | null>(null);
   const [returnBusy, setReturnBusy] = useState(false);
+  const [awbOrder, setAwbOrder] = useState<Order | null>(null);
+  const [printedNow, setPrintedNow] = useState<Record<string, true>>({});
 
   const params = { status, search: appliedSearch, page, limit: 10 };
   const { data, isLoading: loading, isError, refetch } = useAdminOrders(params);
   const orders = data?.items || [];
   const pages = data?.pages || 1;
   const error = isError ? 'Failed to load orders' : '';
+
+  /** Orders whose AWB was printed on this computer (remembered with the label's values). */
+  const printed = useMemo(() => {
+    const done: Record<string, boolean> = { ...printedNow };
+    for (const order of orders) if (loadOverrides(order._id).printedAt) done[order._id] = true;
+    return done;
+  }, [orders, printedNow]);
 
   useEffect(() => {
     if (!selected) return;
@@ -136,29 +171,40 @@ export default function Orders() {
                   <div>
                     <h3>{order.customerName}</h3>
                     <p className="muted">
-                      {order.email} · {order.status} · {order.paymentStatus}
+                      Order {orderRef(order._id)}
+                      {order.createdAt ? ` · ${formatOrderDate(order.createdAt)}` : ''} · {order.status} ·{' '}
+                      {order.paymentStatus}
                       {order.returnStatus && order.returnStatus !== 'none' ? ` · Return: ${order.returnStatus}` : ''}
                     </p>
                   </div>
                   <strong>${orderTotal(order).toFixed(2)}</strong>
                 </div>
+                <SoldItems order={order} />
               </button>
-              <label>
-                Status
-                <select
-                  className="input"
-                  value={order.status}
-                  onChange={(e) => updateStatus(order._id, e.target.value)}
-                >
-                  {statuses
-                    .filter((s) => s !== 'all')
-                    .map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                </select>
-              </label>
+              <div className="order-card-actions">
+                <label>
+                  Status
+                  <select
+                    className="input"
+                    value={order.status}
+                    onChange={(e) => updateStatus(order._id, e.target.value)}
+                  >
+                    {statuses
+                      .filter((s) => s !== 'all')
+                      .map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                {order.status !== 'cancelled' && (
+                  <button type="button" className="btn btn-primary" onClick={() => setAwbOrder(order)}>
+                    {printed[order._id] ? 'Reprint AWB' : 'Print AWB'}
+                  </button>
+                )}
+                {printed[order._id] && <span className="pill pill-ok">AWB printed</span>}
+              </div>
             </article>
           ))}
         </div>
@@ -198,6 +244,11 @@ export default function Orders() {
                 ))}
               </ul>
               <p className="price">Total ${orderTotal(selected).toFixed(2)}</p>
+              {selected.status !== 'cancelled' && (
+                <button type="button" className="btn btn-primary" onClick={() => setAwbOrder(selected)}>
+                  {printed[selected._id] ? 'Reprint AWB' : 'Print AWB'}
+                </button>
+              )}
               {returnActive && (
                 <div className="admin-quick" style={{ marginTop: '1rem' }}>
                   {selected.returnStatus === 'requested' && (
@@ -253,6 +304,16 @@ export default function Orders() {
       </div>
 
       {!loading && !orders.length && !error && <p className="muted">No orders yet.</p>}
+
+      {awbOrder && (
+        <Suspense fallback={null}>
+          <AwbDialog
+            order={awbOrder}
+            onClose={() => setAwbOrder(null)}
+            onPrinted={(id) => setPrintedNow((current) => ({ ...current, [id]: true }))}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { ensureStoreCategory } from '../../shared/ensureCategory.js';
 import { quantumApi } from './auth.js';
 import { HttpError } from './http.js';
 import { failureReason, withRetry } from './net.js';
+import type { PricedProduct } from './priceRaise.js';
 import type { StoreProduct } from './reconcile.js';
 
 type Fetch = typeof fetch;
@@ -48,29 +49,48 @@ export function storeClient(authorization: string, fetchImpl: Fetch = fetch) {
     return data as T;
   }
 
+  /** Every product in the store as the backend returns it, newest first. */
+  async function allProducts() {
+    const all: any[] = [];
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const data = await request<{ items?: any[]; pages?: number }>('GET', `/products?limit=${PAGE_SIZE}&page=${page}&sort=newest`, undefined, 1);
+      all.push(...(data.items ?? []));
+      if (page >= (data.pages || 1)) return all;
+    }
+    throw new HttpError(502, 'QuantumStore returned more pages of products than expected');
+  }
+
   return {
     /** Every product in the store, newest first. */
     async products(): Promise<StoreProduct[]> {
-      const all: StoreProduct[] = [];
-      for (let page = 1; page <= MAX_PAGES; page += 1) {
-        const data = await request<{ items?: any[]; pages?: number }>('GET', `/products?limit=${PAGE_SIZE}&page=${page}&sort=newest`, undefined, 1);
-        for (const p of data.items ?? []) {
-          all.push({
-            id: String(p._id),
-            name: String(p.name ?? ''),
-            description: String(p.description ?? ''),
-            price: Number(p.price) || 0,
-            stock: p.stock === null || p.stock === undefined ? null : Number(p.stock),
-            brand: String(p.brand ?? ''),
-            category: String(p.category ?? ''),
-            image: String(p.image ?? ''),
-            images: Array.isArray(p.images) ? p.images.map(String) : [],
-          });
-        }
-        if (page >= (data.pages || 1)) return all;
-      }
-      throw new HttpError(502, 'QuantumStore returned more pages of products than expected');
+      return (await allProducts()).map((p) => ({
+        id: String(p._id),
+        name: String(p.name ?? ''),
+        description: String(p.description ?? ''),
+        price: Number(p.price) || 0,
+        stock: p.stock === null || p.stock === undefined ? null : Number(p.stock),
+        brand: String(p.brand ?? ''),
+        category: String(p.category ?? ''),
+        image: String(p.image ?? ''),
+        images: Array.isArray(p.images) ? p.images.map(String) : [],
+      }));
     },
+
+    /** Every product with its prices: the product's and each variant's (variants are kept whole, to be sent back). */
+    async pricedProducts(): Promise<PricedProduct[]> {
+      return (await allProducts()).map((p) => ({
+        id: String(p._id),
+        name: String(p.name ?? ''),
+        productType: String(p.productType || 'standard'),
+        price: Number(p.price) || 0,
+        variants: Array.isArray(p.variants)
+          ? p.variants.map((v: Record<string, unknown>) => ({ ...v, label: String(v.label ?? ''), price: Number(v.price) || 0 }))
+          : [],
+      }));
+    },
+
+    /** Changes only the fields sent (PUT /products/:id is a partial update). */
+    updateProduct: (id: string, payload: Record<string, unknown>) => request('PUT', `/products/${encodeURIComponent(id)}`, payload),
 
     /** PKR per base price unit, from the store settings. */
     async rate() {

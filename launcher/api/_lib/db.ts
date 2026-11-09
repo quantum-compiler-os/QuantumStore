@@ -40,6 +40,26 @@ export async function listingCollection() {
   return (await getDb()).collection<Listing>('launcher_listings');
 }
 
+/**
+ * One price change made by `npm run raise-prices`, saved just before the change. `_id` is `<runId>:<target>:<key>`, so
+ * a re-run of the same run finds it and never adds the amount twice (see api/_lib/priceRaise.ts).
+ */
+export type PriceRaiseRecord = {
+  _id: string;
+  runId: string;
+  target: 'store' | 'daraz';
+  /** QuantumStore product id, or Daraz SKU id. */
+  key: string;
+  name: string;
+  from: unknown;
+  to: unknown;
+  at: Date;
+};
+
+export async function priceRaiseCollection() {
+  return (await getDb()).collection<PriceRaiseRecord>('launcher_price_raises');
+}
+
 /** Remembers which Audionic product became which QuantumStore product (and Daraz item), so a re-sync never duplicates. */
 export type AudionicLink = {
   audionicId: string;
