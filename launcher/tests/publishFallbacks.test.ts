@@ -39,6 +39,11 @@ describe('removeWords / isKeywordRefused', () => {
     expect(removeWords('Reboot 303', ['Boo'])).toBe('Reboot 303');
   });
 
+  it('ignores accents, so the brand RODE also comes out of "Røde"', () => {
+    expect(removeWords('Røde IXY-L Microphone', ['RODE'])).toBe('IXY-L Microphone');
+    expect(removeWords('Rōde and Rode mics', ['Røde'])).toBe('and mics');
+  });
+
   it('copes with regex characters in the word and an empty list', () => {
     expect(removeWords('Fast C++ speaker', ['C++'])).toBe('Fast speaker');
     expect(removeWords('Keep this', [])).toBe('Keep this');
@@ -135,6 +140,32 @@ describe('createWithFallbacks', () => {
     const result = await run(attempt);
     expect(result.changes).toEqual([NO_BRAND_NOTE, STRIPPED_NOTE]);
     expect(attempt).toHaveBeenCalledTimes(3);
+  });
+
+  it('takes the brand out of the title when Daraz still refuses the brand as No Brand', async () => {
+    const rode = { ...input, name: 'Røde IXY-L lightning Stereo Microphone', brand: 'RODE', package: { ...input.package, content: 'Røde IXY-L' } };
+    const attempt = vi
+      .fn()
+      .mockRejectedValueOnce(refusal(brandPolicy))
+      .mockRejectedValueOnce(refusal(brandPolicy))
+      .mockResolvedValueOnce('item-r');
+    const result = await createWithFallbacks({ input: rode, attempt, isRefusal, brandWords: ['RODE'] });
+    expect(result.changes).toEqual([NO_BRAND_NOTE, STRIPPED_NOTE]);
+    expect(attempt.mock.calls[2][0].name).toBe('IXY-L lightning Stereo Microphone');
+    expect(attempt.mock.calls[2][0].package.content).toBe('IXY-L');
+  });
+
+  it('then asks the AI for a generic title when the brand is still refused', async () => {
+    const rewrite = vi.fn(async () => ({ name: 'Stereo microphone for phones', description: words(45), highlights: [] }));
+    const attempt = vi
+      .fn()
+      .mockRejectedValueOnce(refusal(brandPolicy))
+      .mockRejectedValueOnce(refusal(brandPolicy))
+      .mockRejectedValueOnce(refusal(brandPolicy))
+      .mockResolvedValueOnce('item-r2');
+    const result = await run(attempt, { rewrite });
+    expect(result.changes).toEqual([NO_BRAND_NOTE, STRIPPED_NOTE, 'generic title "Stereo microphone for phones"']);
+    expect(attempt.mock.calls[3][0].name).toBe('Stereo microphone for phones');
   });
 
   it('gives up with Daraz\'s own message after each step has been tried once', async () => {

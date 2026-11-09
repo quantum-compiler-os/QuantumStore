@@ -18,7 +18,8 @@ export async function withRetry<T>(
       return await send();
     } catch (err) {
       if (attempt >= retries || !retryOn(err)) throw err;
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      // Wait a little longer each time (600ms, 1.2s, 2.4s…) so a short DNS/network drop can pass.
+      await new Promise((resolve) => setTimeout(resolve, delayMs * 2 ** attempt));
     }
   }
 }

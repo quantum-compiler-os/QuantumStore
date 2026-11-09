@@ -83,3 +83,20 @@ export type CamshamLink = Omit<AudionicLink, 'audionicId'> & { camshamId: string
 export async function camshamCollection() {
   return (await getDb()).collection<CamshamLink>('launcher_camsham');
 }
+
+/** The same for PakBooks books (pakbooks.com), keyed by PakBooks' product id. */
+export type PakbooksLink = Omit<AudionicLink, 'audionicId'> & { pakbooksId: string };
+
+export async function pakbooksCollection() {
+  return (await getDb()).collection<PakbooksLink>('launcher_pakbooks');
+}
+
+/**
+ * The same for products read by the Store fetcher from any other shop, keyed by `<shop host>/<the shop's product id>`.
+ * `sourcePkr` is the price QuantumStore got (the shop's price plus the markup).
+ */
+export type StoreLink = Omit<AudionicLink, 'audionicId'> & { storeProductId: string };
+
+export async function storeLinkCollection() {
+  return (await getDb()).collection<StoreLink>('launcher_store_links');
+}

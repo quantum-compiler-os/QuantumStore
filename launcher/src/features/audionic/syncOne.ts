@@ -1,6 +1,9 @@
 import type { AudionicItem, AudionicLinkRow } from '../../api/audionic';
 import type { DarazPublishRequest, DarazPublishResult, PreparedListing } from '../../api/daraz';
-import { descriptionForDaraz, descriptionProblem, isBrandNotAuthorized } from '../../../shared/darazText';
+import { descriptionForDaraz, descriptionProblem, isBrandNotAuthorized, isKeywordRefused, isProductPolicyRefused } from '../../../shared/darazText';
+
+/** Daraz's rule number ("R_4862749") from a policy refusal, for asking Seller Support about it. */
+const policyCode = (message: string) => /Policy\((R_\d+)\)/.exec(message)?.[1] ?? 'policy refusal';
 import { getErrorMessage } from '../../utils/errors';
 import { applyPrepared, darazPrice, darazProblem, initialDaraz } from '../daraz/darazForm';
 import { rupeesToStored } from '../products/pricing';
@@ -170,6 +173,13 @@ export type SyncDeps = {
  */
 export class NoPicturesError extends Error {}
 
+/**
+ * Thrown by `hostImages` when our own storage (the QuantumStore backend and its Google Drive) refuses a picture for a
+ * reason that is not about that one file: an expired Drive sign-in, the backend being down. Every product would fail
+ * the same way, so `syncItem` passes it on and the run stops, instead of calling each product "no working picture".
+ */
+export class StorageError extends Error {}
+
 /** Daraz's per-category price cap ("Max Price Spam" policy): the product can only be sold on QuantumStore. */
 const isAbovePriceCap = (message: string) => /max price spam|price exceeds the allowed threshold/i.test(message);
 
@@ -273,6 +283,7 @@ export async function syncItem(
     }
     if (result.store === 'unchanged') log('QuantumStore: nothing to change');
   } catch (err) {
+    if (err instanceof StorageError) throw err;
     const message = messageOf(err, 'Could not save the product');
     if (err instanceof NoPicturesError) {
       log(`skipped — ${message}`, 'error');
@@ -307,6 +318,8 @@ export async function syncItem(
     const { id: categoryId, path } = deps.daraz.category;
     const quantity = String(DARAZ_QUANTITY);
     log(`Daraz: trying — category ${path}`);
+    // Pictures first: a product with no working picture is skipped before an AI request is spent on it.
+    const darazImages = (await pictures()).darazImages;
     const known = deps.knownListing?.(source.id);
     log(
       known
@@ -342,7 +355,6 @@ export async function syncItem(
     const tooShort = descriptionProblem(description);
     if (tooShort) throw new Error(tooShort);
 
-    const darazImages = (await pictures()).darazImages;
     const darazAmount = darazPrice(plan, price);
     log(
       `Daraz: sending — Rs ${darazAmount.toLocaleString()} (${source.label} Rs ${item.pkr.toLocaleString()} + commission), quantity ${DARAZ_QUANTITY}, SKU ${sellerSku}, ${darazImages.length} image${darazImages.length === 1 ? '' : 's'}`,
@@ -374,7 +386,13 @@ export async function syncItem(
     log(`Daraz: LISTED — ${message}`);
     return { ...result, daraz: 'listed', darazMessage: message };
   } catch (err) {
+    if (err instanceof StorageError) throw err;
     const message = messageOf(err, 'Daraz refused the listing');
+    if (err instanceof NoPicturesError) {
+      // The supplier's own pictures are missing or broken: not a Daraz failure, so the run carries on.
+      log(`Daraz: skipped — ${message}`, 'error');
+      return { ...result, daraz: 'skipped', darazMessage: message };
+    }
     if (isBrandNotAuthorized(message)) {
       // The server already retried once as "No Brand"; if Daraz still refuses, nothing else is attempted.
       const blocked = brandBlockedMessage(brand);
@@ -385,6 +403,19 @@ export async function syncItem(
       const capped = 'Daraz does not allow a price this high in this category (Max Price policy); it stays on QuantumStore only';
       log(`Daraz: skipped — ${capped}`, 'error');
       return { ...result, daraz: 'skipped', darazMessage: capped };
+    }
+    if (isKeywordRefused(message)) {
+      // Daraz's content policy forbids words in this product (e.g. some religious titles). The server has already tried
+      // without the brand name; this is Daraz's rule for the product, not a fault, so the run carries on.
+      const restricted = "Daraz's keyword policy does not allow this product's title or text; it stays on QuantumStore only";
+      log(`Daraz: skipped — ${restricted}`, 'error');
+      return { ...result, daraz: 'skipped', darazMessage: restricted };
+    }
+    if (isProductPolicyRefused(message)) {
+      // Daraz's risk policy refuses this one product (often a protected title or publisher); the next one may be fine.
+      const refused = `Daraz's policy does not allow this product on your account (${policyCode(message)}); it stays on QuantumStore only`;
+      log(`Daraz: skipped — ${refused}`, 'error');
+      return { ...result, daraz: 'skipped', darazMessage: refused };
     }
     log(`Daraz: FAILED — ${message}`, 'error');
     return { ...result, daraz: 'failed', darazMessage: message };

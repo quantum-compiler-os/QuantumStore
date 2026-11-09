@@ -49,8 +49,33 @@ type CallOptions = {
   accessToken?: string;
 };
 
+/**
+ * How long Daraz's short throttle ("Api access frequency exceeds the limit. this ban will last 1 seconds") asks us to
+ * wait, or null for any other error. Daraz refuses a throttled call before doing anything, so it is safe to repeat.
+ */
+export function throttleWaitMs(message: string, code?: string) {
+  if (!/access frequency exceeds|ApiCallLimit/i.test(`${code ?? ''} ${message}`)) return null;
+  const seconds = Number(/last\s+(\d+)\s*sec/i.exec(message)?.[1] ?? 2);
+  return Math.min(30, seconds + 1) * 1000;
+}
+
+const THROTTLE_RETRIES = 4;
+
+/** One signed Daraz call, repeated (with a fresh signature) while Daraz's short throttle is on. */
+async function call<T = any>(apiPath: string, options: CallOptions = {}, wait = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await callOnce<T>(apiPath, options);
+    } catch (err) {
+      const ms = err instanceof DarazError ? throttleWaitMs(err.message, err.code) : null;
+      if (ms === null || attempt >= THROTTLE_RETRIES) throw err;
+      await wait(ms * (attempt + 1));
+    }
+  }
+}
+
 /** One signed Daraz call. System params + signature go in the query string, business params in the form body. */
-async function call<T = any>(apiPath: string, { method = 'GET', params = {}, accessToken }: CallOptions = {}) {
+async function callOnce<T = any>(apiPath: string, { method = 'GET', params = {}, accessToken }: CallOptions = {}) {
   const { appKey, secret, host } = darazConfig();
   const system: Record<string, string> = {
     app_key: appKey,

@@ -39,6 +39,26 @@ const ICON_PATHS: Record<string, ReactNode> = {
       <circle cx="12" cy="13" r="3.5" />
     </>
   ),
+  pakbooks: (
+    <>
+      <path d="M12 6.5C10 5 7 4.5 3.5 5v13c3.5-.5 6.5 0 8.5 1.5 2-1.5 5-2 8.5-1.5V5C17 4.5 14 5 12 6.5Z" />
+      <line x1="12" y1="6.5" x2="12" y2="19.5" />
+    </>
+  ),
+  stores: (
+    <>
+      <path d="M4 4h16l1 5H3l1-5Z" />
+      <path d="M5 9v11h14V9" />
+      <path d="M10 20v-6h4v6" />
+    </>
+  ),
+  finder: (
+    <>
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <line x1="15.5" y1="15.5" x2="21" y2="21" />
+      <path d="M7.5 9h6M7.5 12h4" />
+    </>
+  ),
   sync: (
     <>
       <path d="M4 12a8 8 0 0 1 14-5.3L20 9" />
@@ -186,6 +206,9 @@ export default function AdminLayout() {
     { to: '/products', label: 'Products', icon: 'products' },
     { to: '/audionic', label: 'Audionic', icon: 'audionic' },
     { to: '/camsham', label: 'CamSham', icon: 'camsham' },
+    { to: '/pakbooks', label: 'PakBooks', icon: 'pakbooks' },
+    { to: '/stores', label: 'Store fetcher', icon: 'stores' },
+    { to: '/auto-finder', label: 'Auto finder', icon: 'finder' },
     { to: '/sync', label: 'Sync', icon: 'sync' },
     { to: '/categories', label: 'Categories', icon: 'categories' },
     { to: '/orders', label: 'Orders', icon: 'orders', badge: toShipCount },

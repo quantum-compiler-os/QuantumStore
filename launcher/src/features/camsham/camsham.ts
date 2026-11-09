@@ -1,6 +1,8 @@
+import axios from 'axios';
 import type { DarazCategoryLeaf } from '../../api/daraz';
+import { getErrorMessage } from '../../utils/errors';
 import { PATH_SEPARATOR, filterLeaves } from '../daraz/categoryGroups';
-import { NoPicturesError, type Pictures } from '../audionic/syncOne';
+import { NoPicturesError, StorageError, type Pictures } from '../audionic/syncOne';
 
 /** The same SKU every time for the same CamSham product, so Daraz rejects a duplicate instead of listing it twice. */
 export const camshamSku = (camshamId: string) => `CS-${camshamId}`;
@@ -35,13 +37,35 @@ export function pictureCanvas(width: number, height: number): { side: number; wi
   return { side, width: Math.round(width * scale), height: Math.round(height * scale) };
 }
 
-/** Enlarges a picture too small for Daraz onto a centred white square (browser only); other pictures are returned as they are. */
+/** Picture formats Daraz takes as they are; anything else (GIF, WebP…) is redrawn as a JPEG. */
+const DARAZ_FORMATS = /^image\/(jpe?g|png)$/i;
+
+/**
+ * Makes a picture Daraz accepts (browser only): one too small is enlarged onto a centred white square, and a GIF or
+ * other format Daraz refuses is redrawn as a JPEG on white (a GIF gives its first frame). Fine pictures are returned as they are.
+ */
 export async function fitPictureForDaraz(blob: Blob): Promise<Blob> {
   const bitmap = await createImageBitmap(blob);
-  const target = pictureCanvas(bitmap.width, bitmap.height);
-  if (!target) {
+  const enlarge = pictureCanvas(bitmap.width, bitmap.height);
+  if (!enlarge && DARAZ_FORMATS.test(blob.type)) {
     bitmap.close();
     return blob;
+  }
+  // Big enough but in the wrong format: the same size, as a JPEG.
+  const target = enlarge ?? { side: 0, width: bitmap.width, height: bitmap.height };
+  if (!enlarge) {
+    const canvas = document.createElement('canvas');
+    canvas.width = target.width;
+    canvas.height = target.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('This browser cannot convert pictures');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, target.width, target.height);
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    return new Promise((resolve, reject) =>
+      canvas.toBlob((out) => (out ? resolve(out) : reject(new Error('Could not convert the picture'))), 'image/jpeg', 0.92),
+    );
   }
   const canvas = document.createElement('canvas');
   canvas.width = target.side;
@@ -60,11 +84,17 @@ export async function fitPictureForDaraz(blob: Blob): Promise<Blob> {
 
 type Copy = { url: string; thumbnail?: string };
 
+const reasonOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+/** Upload refusals about the one file sent (too big, not an image): that picture is left out and the rest go on. */
+const FILE_PROBLEM_STATUSES = [400, 413, 415, 422];
+
 /**
  * Copies a CamSham product's pictures to QuantumStore's storage (the backend turns them into JPEG, which Daraz needs;
  * CamSham serves many as webp). Some of CamSham's full-size files are missing or cut off while its resized copies
  * work, so a picture that fails is tried again from `copiesOf(url)` (largest first). A picture with no working copy is
- * left out and reported; with none left the product is skipped (`NoPicturesError`).
+ * left out and reported; with none left the product is skipped (`NoPicturesError`). When our own storage refuses a
+ * picture for any other reason (Drive sign-in expired, backend down) nothing would work, so `StorageError` is thrown.
  */
 export async function hostPictures(
   sources: string[],
@@ -73,6 +103,8 @@ export async function hostPictures(
     upload: (file: File) => Promise<Copy>;
     copiesOf?: (url: string) => string[];
     onSkip?: (url: string, reason: string) => void;
+    /** The supplier's name for messages ("CamSham"). */
+    label?: string;
   },
 ): Promise<Pictures> {
   const copies: Copy[] = [];
@@ -80,22 +112,36 @@ export async function hostPictures(
   for (const url of sources) {
     let firstError = '';
     for (const candidate of [url, ...(deps.copiesOf?.(url) ?? [])]) {
+      let blob: Blob;
       try {
-        const blob = await deps.download(candidate);
-        const name = candidate.split('/').pop()?.split('?')[0] || 'camsham-image';
-        copies.push(await deps.upload(new File([blob], name, { type: blob.type || 'image/jpeg' })));
-        firstError = '';
-        break;
+        blob = await deps.download(candidate);
       } catch (err) {
-        firstError ||= err instanceof Error ? err.message : String(err);
+        firstError ||= reasonOf(err);
+        continue;
       }
+      const type = blob.type || 'image/jpeg';
+      // A converted GIF must not keep its ".gif" name.
+      const base = (candidate.split('/').pop()?.split('?')[0] || 'supplier-image').replace(/\.[a-z0-9]+$/i, '');
+      const name = `${base}.${type === 'image/png' ? 'png' : type === 'image/webp' ? 'webp' : type === 'image/gif' ? 'gif' : 'jpg'}`;
+      try {
+        copies.push(await deps.upload(new File([blob], name, { type })));
+      } catch (err) {
+        // The backend's own reason (e.g. "Google Drive sign-in failed: …"), not axios' "status code 502".
+        const reason = getErrorMessage(err, reasonOf(err));
+        const fileProblem = axios.isAxiosError(err) && FILE_PROBLEM_STATUSES.includes(err.response?.status ?? 0);
+        if (!fileProblem) throw new StorageError(`Could not copy pictures to our storage: ${reason}`);
+        firstError ||= reason;
+        continue;
+      }
+      firstError = '';
+      break;
     }
     if (firstError) {
       lastError = firstError;
       deps.onSkip?.(url, firstError);
     }
   }
-  if (!copies.length) throw new NoPicturesError(`CamSham has no working picture for it${lastError ? ` (${lastError})` : ''}`);
+  if (!copies.length) throw new NoPicturesError(`${deps.label ?? 'CamSham'} has no working picture for it${lastError ? ` (${lastError})` : ''}`);
   const [cover, ...rest] = copies;
   return {
     image: cover.url,

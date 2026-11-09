@@ -1,4 +1,4 @@
-import { audionicCollection, camshamCollection, listingCollection } from './db.js';
+import { audionicCollection, camshamCollection, listingCollection, pakbooksCollection } from './db.js';
 import { getAccessToken, getCategoryLeaves, listDarazProducts, removeProduct } from './daraz.js';
 import { publishListing, type PublishBody } from './darazPublish.js';
 import { prepareListing } from './prepareListing.js';
@@ -44,11 +44,12 @@ export function realSyncDeps(authorization: string, log: (text: string) => void)
     },
     managedProductIds: async () => {
       const projection = { projection: { quantumProductId: 1 } };
-      const [audionic, camsham] = await Promise.all([
+      const [audionic, camsham, pakbooks] = await Promise.all([
         (await audionicCollection()).find({}, projection).toArray(),
         (await camshamCollection()).find({}, projection).toArray(),
+        (await pakbooksCollection()).find({}, projection).toArray(),
       ]);
-      return [...audionic, ...camsham].map((row) => row.quantumProductId).filter(Boolean);
+      return [...audionic, ...camsham, ...pakbooks].map((row) => row.quantumProductId).filter(Boolean);
     },
     log,
   };

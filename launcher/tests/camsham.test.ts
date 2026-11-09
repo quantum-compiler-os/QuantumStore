@@ -1,6 +1,7 @@
+import { AxiosError, type AxiosResponse } from 'axios';
 import { describe, expect, it, vi } from 'vitest';
 import { fetchCamshamImage, isCamshamImage, resizedCopies, toItem, typeOf, type WooCategory, type WooProduct } from '../api/_lib/camsham';
-import { NoPicturesError } from '../src/features/audionic/syncOne';
+import { NoPicturesError, StorageError } from '../src/features/audionic/syncOne';
 import { camshamFallbackCategory, camshamSku, hostPictures, pictureCanvas, storeCategoryFor } from '../src/features/camsham/camsham';
 
 const categories = new Map<number, WooCategory>(
@@ -151,6 +152,36 @@ describe('CamSham pictures', () => {
     expect(pictureCanvas(2400, 400)).toEqual({ side: 1200, width: 1200, height: 200 });
     expect(pictureCanvas(900, 900)).toBeNull();
     expect(pictureCanvas(2000, 1500)).toBeNull();
+  });
+
+  /** What axios throws when the backend answers `status` with `{ message }`. */
+  const refused = (status: number, message: string) =>
+    new AxiosError(`Request failed with status code ${status}`, 'ERR_BAD_RESPONSE', undefined, undefined, {
+      status,
+      data: { ok: false, message },
+    } as AxiosResponse);
+
+  it('stop with the backend\'s reason when our storage refuses them (not "no working picture")', async () => {
+    const drive = 'Google Drive sign-in failed: Token has been expired or revoked.';
+    const upload = vi.fn(async () => Promise.reject(refused(502, drive)));
+    const copying = hostPictures(['https://c/a.webp', 'https://c/b.webp'], { download: async () => new Blob(['x'], { type: 'image/jpeg' }), upload });
+    await expect(copying).rejects.toBeInstanceOf(StorageError);
+    await expect(copying).rejects.toThrow(drive);
+    expect(upload).toHaveBeenCalledTimes(1); // the second picture is not tried
+  });
+
+  it('leave out only the one picture the backend refuses as a file (too big)', async () => {
+    const skipped: string[] = [];
+    const pictures = await hostPictures(['https://c/huge.png', 'https://c/ok.png'], {
+      download: async () => new Blob(['x'], { type: 'image/png' }),
+      upload: async (file) => {
+        if (file.name.startsWith('huge')) throw refused(413, 'Image is larger than 5 MB');
+        return { url: `https://drive/${file.name}` };
+      },
+      onSkip: (url, reason) => skipped.push(`${url}: ${reason}`),
+    });
+    expect(pictures.darazImages).toEqual(['https://drive/ok.png']);
+    expect(skipped).toEqual(['https://c/huge.png: Image is larger than 5 MB']);
   });
 
   it('skip the product when not one picture works', async () => {

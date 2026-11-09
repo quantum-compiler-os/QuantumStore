@@ -13,6 +13,9 @@ const Publish = lazy(() => import('./pages/admin/Publish'));
 const Products = lazy(() => import('./pages/admin/Products'));
 const Audionic = lazy(() => import('./pages/admin/Audionic'));
 const CamSham = lazy(() => import('./pages/admin/CamSham'));
+const PakBooks = lazy(() => import('./pages/admin/PakBooks'));
+const StoreFetcher = lazy(() => import('./pages/admin/StoreFetcher'));
+const AutoStoreFinder = lazy(() => import('./pages/admin/AutoStoreFinder'));
 const Sync = lazy(() => import('./pages/admin/Sync'));
 const Categories = lazy(() => import('./features/admin/CategoriesAdmin'));
 const Orders = lazy(() => import('./pages/admin/Orders'));
@@ -49,6 +52,9 @@ export default function App() {
                       <Route path="products" element={<Products />} />
                       <Route path="audionic" element={<Audionic />} />
                       <Route path="camsham" element={<CamSham />} />
+                      <Route path="pakbooks" element={<PakBooks />} />
+                      <Route path="stores" element={<StoreFetcher />} />
+                      <Route path="auto-finder" element={<AutoStoreFinder />} />
                       <Route path="sync" element={<Sync />} />
                       <Route path="categories" element={<Categories />} />
                       <Route path="orders" element={<Orders />} />

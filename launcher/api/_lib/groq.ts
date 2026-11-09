@@ -34,6 +34,8 @@ type Options = {
   fetchImpl?: typeof fetch;
   /** Pause before the one retry after a 429; overridable so tests do not wait. */
   rateLimitWaitMs?: number;
+  /** First pause before retrying a failed connection (it doubles each time); overridable so tests do not wait. */
+  retryDelayMs?: number;
 };
 
 const MAX_RATE_LIMIT_WAIT_MS = 10_000;
@@ -46,7 +48,7 @@ export function rateLimitWait(response: Response, fallback: number) {
 
 /** One Groq chat completion in JSON mode, returned as a parsed object. The key and model come from the environment. */
 export async function chatJson(messages: ChatMessage[], options: Options = {}) {
-  const { timeoutMs = 20_000, maxTokens = 1024, env = process.env, fetchImpl = fetch, rateLimitWaitMs = 3_000, rotation = sharedRotation } = options;
+  const { timeoutMs = 20_000, maxTokens = 1024, env = process.env, fetchImpl = fetch, rateLimitWaitMs = 3_000, retryDelayMs = 1_000, rotation = sharedRotation } = options;
   const keys = groqKeys(env);
   if (!keys.length) throw new HttpError(404, 'AI suggestions are off: set GROQ_API_KEY in the Launcher environment');
 
@@ -70,8 +72,9 @@ export async function chatJson(messages: ChatMessage[], options: Options = {}) {
           body: payload,
           signal: AbortSignal.timeout(timeoutMs),
         }),
-      // A dropped connection is retried once; a slow answer is not (that would double the wait).
-      { retries: 1, retryOn: (err) => failureReason(err) !== 'timed out' },
+      // A dropped connection or DNS hiccup (EAI_AGAIN, ENOTFOUND…) is retried a few times with growing pauses
+      // (~1s, 2s, 4s); a slow answer is not (that would multiply the wait).
+      { retries: 3, delayMs: retryDelayMs, retryOn: (err) => failureReason(err) !== 'timed out' },
     );
   let key = keys[rotation.active % keys.length];
   let response: Response;

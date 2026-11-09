@@ -130,6 +130,22 @@ function readPackage(raw: unknown): PackageSize | null {
   return weight && length && width && height ? { weight, length, width, height } : null;
 }
 
+/**
+ * A package size from the product's own "Weight" detail ("805 g", "1.2 kg"), for when the AI gives none. Only the
+ * weight is known, so the box is a book-sized one (22×15 cm) whose thickness grows with the weight. Null without a weight.
+ */
+export function packageFromSpecs(specs: Array<{ key: string; value: string }>): PackageSize | null {
+  const spec = specs.find((s) => /^(shipping\s+)?weight$/i.test(s.key.trim()));
+  const match = /([\d.]+)\s*(kg|kilograms?|g|grams?)\b/i.exec(spec?.value || '');
+  if (!match) return null;
+  const amount = Number(match[1]);
+  const kg = /^k/i.test(match[2]) ? amount : amount / 1000;
+  const weight = positive(Math.max(kg, 0.05), 100);
+  if (!weight) return null;
+  const height = Math.min(30, Math.max(2, Math.round(weight * 4) + 1));
+  return { weight, length: 22, width: 15, height };
+}
+
 /** Maps the model's spelling of an option back onto a real one ("age 12+" → "12+ Years"), or null. */
 function matchOption(options: string[], answer: string) {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9+]+/g, '');

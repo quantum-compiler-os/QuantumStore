@@ -1,6 +1,6 @@
 import { NO_BRAND, shouldRetryAsNoBrand, type DarazProductInput } from './darazCore.js';
 import type { AttributeRole, Rewrite } from './listingAi.js';
-import { MIN_DESCRIPTION_WORDS, countWords, isKeywordRefused, isTitleRefused, removeWords } from '../../shared/darazText.js';
+import { MIN_DESCRIPTION_WORDS, countWords, isBrandNotAuthorized, isKeywordRefused, isTitleRefused, removeWords } from '../../shared/darazText.js';
 
 export const NO_BRAND_NOTE = 'listed as No Brand';
 export const STRIPPED_NOTE = 'brand name removed from the texts';
@@ -86,8 +86,9 @@ type Options<T> = {
 /**
  * Creates the listing, and when Daraz refuses it for a reason that wording can fix, tries again with safer wording:
  *  1. brand refused (unknown or not authorized)        → the same listing as "No Brand"
- *  2. "not allowed to sell these keywords"             → the brand name removed from the texts (and "No Brand")
- *  3. still refused for keywords                       → the AI's generic title and description (and "No Brand")
+ *  2. "not allowed to sell these keywords", or the brand
+ *     still refused as No Brand (spotted in the title)  → the brand name removed from the texts (and "No Brand")
+ *  3. still refused                                    → the AI's generic title and description (and "No Brand")
  *  4. title refused (blank or too long)                → the AI's generic wording, or without an AI the name shortened
  * Each step is tried once; anything else Daraz says is raised as it is. `changes` says what was altered.
  */
@@ -129,21 +130,25 @@ export async function createWithFallbacks<T>({
         continue;
       }
 
-      if (isKeywordRefused(err.message)) {
+      // Still "not authorized to sell this brand" as No Brand: Daraz is spotting the brand in the title or texts,
+      // so it is handled like refused keywords — the brand name taken out, then the AI's generic wording.
+      const brandInTexts = current.brand === NO_BRAND && isBrandNotAuthorized(err.message);
+      if (isKeywordRefused(err.message) || brandInTexts) {
+        const what = brandInTexts ? 'brand still refused as No Brand' : 'keywords refused by Daraz';
         if (!triedStrip) {
           triedStrip = true;
           const stripped = stripBrandWords(current, brandWords);
           const changed = JSON.stringify(stripped) !== JSON.stringify(current);
           // Taking words out must not push the description under Daraz's minimum.
           if (changed && countWords(stripped.description) >= MIN_DESCRIPTION_WORDS) {
-            log(`keywords refused by Daraz (${err.message}); retrying without the brand name in the texts`);
+            log(`${what} (${err.message}); retrying without the brand name in the title and texts`);
             changes.push(STRIPPED_NOTE);
             current = withoutBrand(stripped, changes);
             continue;
           }
         }
         if (!triedRewrite && rewrite) {
-          log(`keywords still refused (${err.message}); asking the AI for a generic title and description`);
+          log(`${what} again (${err.message}); asking the AI for a generic title and description`);
           const written = await askRewrite();
           if (written) {
             changes.push(`generic title "${written.name}"`);

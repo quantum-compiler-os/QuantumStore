@@ -8,6 +8,7 @@ import {
   composeAttributes,
   draftFromKnown,
   listingMessages,
+  packageFromSpecs,
   placeholderValue,
   readListingAnswer,
   requiredAttributes,
@@ -81,6 +82,15 @@ export async function prepareListing(body: PrepareBody) {
     }
   }
   if (known) draft = draftFromKnown(known, draft);
+  // The AI sometimes leaves the package out; the product's own weight (e.g. a book's shipping weight) still gives one.
+  let packageFromWeight = false;
+  if (!draft?.package) {
+    const fromSpecs = packageFromSpecs(product.specs ?? []);
+    if (fromSpecs) {
+      draft = { ...(draft ?? { name: '', description: '', highlights: [], attributes: {} }), package: fromSpecs };
+      packageFromWeight = true;
+    }
+  }
 
   const composed = composeAttributes(required, product, draft);
   const { values } = composed;
@@ -95,7 +105,7 @@ export async function prepareListing(body: PrepareBody) {
     if (placeholders.length) logLine(`prepare listing: "${product.name}" filled with placeholders: ${placeholders.map((p) => `${p.label} = ${p.value}`).join(', ')}`);
   }
   logLine(
-    `prepare listing: "${product.name}" category ${categoryId} — ${Object.keys(values).length} fields filled, package ${draft?.package ? (known ? 'from the ready-made data' : 'estimated') : 'NOT estimated'}` +
+    `prepare listing: "${product.name}" category ${categoryId} — ${Object.keys(values).length} fields filled, package ${draft?.package ? (known ? 'from the ready-made data' : packageFromWeight ? 'from the product weight' : 'estimated') : 'NOT estimated'}` +
       (missing.length ? `, missing: ${missing.map((a) => a.label).join(', ')}` : ''),
   );
   return {

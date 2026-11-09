@@ -16,6 +16,7 @@ import { useToast } from '../../context/ToastContext';
 import {
   PAUSE_DARAZ_AFTER_BLOCKS,
   STOP_AFTER_FAILURES,
+  StorageError,
   consecutiveBlocked,
   consecutiveFailures,
   itemStatus,
@@ -67,11 +68,53 @@ export type SupplierConfig<I extends SourceItem> = {
   /** Copies the supplier's pictures to our own storage before the product is listed. */
   hostImages?: (item: I, log: (text: string, level?: 'info' | 'error') => void) => Promise<Pictures>;
   knownListing?: (id: string) => KnownListing | undefined;
+  /** Title of the price column (QuantumStore's price); "<name> price" when the supplier's price is used as it is. */
+  priceLabel?: string;
 };
+
+/** What one run did, for the Auto finder's summary. */
+export type RunSummary = {
+  handled: number;
+  total: number;
+  /** New products made on QuantumStore. */
+  created: number;
+  listed: number;
+  darazFailed: number;
+  darazSkipped: number;
+  darazBlocked: number;
+  storeFailed: number;
+  noPicture: number;
+  /** Stop was pressed (a run never stops itself). */
+  stopped: boolean;
+  /** Types with no Daraz category: their products were left for a later run. */
+  leftForLater: string[];
+  /** The catalog could not be read (or the run broke), so nothing was synced. */
+  error?: string;
+};
+
+export const EMPTY_SUMMARY: RunSummary = {
+  handled: 0,
+  total: 0,
+  created: 0,
+  listed: 0,
+  darazFailed: 0,
+  darazSkipped: 0,
+  darazBlocked: 0,
+  storeFailed: 0,
+  noPicture: 0,
+  stopped: false,
+  leftForLater: [],
+};
+
+/** Hands-free mode (Auto finder): sync up to `limit` products (0: all) as soon as the page is ready, then report back. */
+export type AutoRun = { limit: number; signal: AbortSignal; onDone: (summary: RunSummary) => void };
 
 type LogLine = { time: string; level: 'info' | 'error'; text: string };
 
 const MAX_LOG_LINES = 500;
+
+/** Rows drawn in the table at once (a catalog of thousands would make the page crawl); the filter narrows the rest. */
+const MAX_ROWS = 300;
 
 /**
  * When the AI (Groq) cannot answer for a while — its rate limit, or the connection to it failing (e.g. a DNS hiccup) —
@@ -137,10 +180,13 @@ type Props<I extends SourceItem> = {
   /** Extra links for products an older import created (they are adopted instead of duplicated). */
   adopt?: (saved: SupplierLinkRow[]) => SupplierLinkRow[];
   adoptedNotice?: (count: number) => ReactNode;
+  /** Sync without a click and report back (Auto finder). */
+  auto?: AutoRun;
 };
 
-export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, adoptedNotice }: Props<I>) {
+export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, adoptedNotice, auto }: Props<I>) {
   const { name, site, idOf } = config;
+  const priceLabel = config.priceLabel ?? `${name} price`;
   const toast = useToast();
   const confirm = useConfirm();
   const queryClient = useQueryClient();
@@ -183,7 +229,10 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
     retry: false,
     refetchOnWindowFocus: false,
   });
-  const { data: status } = useQuery({ queryKey: ['daraz', 'status'], queryFn: getDarazStatus, retry: false });
+  const statusQuery = useQuery({ queryKey: ['daraz', 'status'], queryFn: getDarazStatus, retry: false });
+  const status = statusQuery.data;
+  // Answered or failed: either way the Auto finder knows whether Daraz is connected.
+  const statusSettled = statusQuery.isFetched;
   const darazReady = Boolean(status?.configured && status.connected);
   const leaves = useQuery({
     queryKey: ['daraz', 'categories'],
@@ -395,32 +444,50 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
     };
   }
 
-  async function run() {
-    if (!toSync.length || running || (typesWithoutCategory.length && !suggesting)) return;
-    if (!darazReady) {
+  /**
+   * Syncs `list` (the ticked products unless given). `unattended` (Auto finder) asks nothing: without Daraz the products
+   * go to QuantumStore only, and types the AI found no category for are left for later instead of holding the run back.
+   */
+  /** Counts a minute down at the end of the log (and in the terminal); false when Stop was pressed meanwhile. */
+  async function waitAMinute(why: string, what: string) {
+    const terminal = new AbortController();
+    terminalCountdown(RATE_LIMIT_WAIT, `${why}: ${what}`, terminal.signal);
+    for (let left = RATE_LIMIT_WAIT; left > 0 && !stopRef.current; left -= 1) {
+      setCountdown({ why, left });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    setCountdown(null);
+    if (stopRef.current) terminal.abort();
+    return !stopRef.current;
+  }
+
+  async function run(list: I[] = toSync, { unattended = false } = {}): Promise<RunSummary | null> {
+    if (!list.length || running || (!unattended && typesWithoutCategory.length && !suggesting)) return null;
+    if (!darazReady && !unattended) {
       const goOn = await confirm(
         'Daraz is not connected, so these products will only be added to QuantumStore. Connect Daraz in Settings first if you want them there too.',
         { title: 'Sync to QuantumStore only?', confirmLabel: 'Only QuantumStore' },
       );
-      if (!goOn) return;
+      if (!goOn) return null;
     }
     setRunning(true);
     setNotice('');
-    stopRef.current = false;
+    // The Auto finder's Stop may already have been pressed while this shop's catalog was read.
+    stopRef.current = Boolean(auto?.signal.aborted);
+    let stopReason = '';
     addLog(
-      `Starting: ${toSync.length} products · ${darazReady ? 'Daraz connected' : 'Daraz NOT connected (QuantumStore only)'} · ` +
+      `Starting: ${list.length} products · ${darazReady ? 'Daraz connected' : 'Daraz NOT connected (QuantumStore only)'} · ` +
         types.map((type) => `${type} → ${typeCategories[type]?.path || 'no category'}`).join(' | '),
     );
-    const tally = { listed: 0, darazFailed: 0, darazSkipped: 0, darazBlocked: 0, storeFailed: 0, noPicture: 0 };
+    const tally = { created: 0, listed: 0, darazFailed: 0, darazSkipped: 0, darazBlocked: 0, storeFailed: 0, noPicture: 0 };
     let blocks = 0;
     let darazPausedReason: string | undefined;
     let done = 0;
     let storeFailures = 0;
     let darazFailures = 0;
-    let haltedBecause = '';
     const leftForLater = new Set<string>();
     // Types that already have a category go first; the rest follow in the order the AI works through them.
-    const queue = [...toSync].sort((a, b) => {
+    const queue = [...list].sort((a, b) => {
       const ready = Number(!typeCategories[a.type]) - Number(!typeCategories[b.type]);
       return ready || (typeCategories[a.type] ? 0 : a.type.localeCompare(b.type));
     });
@@ -439,32 +506,46 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
       const product = config.storeCategory ? { ...item, storeCategory: config.storeCategory(item, daraz) } : item;
       setResults((prev) => ({ ...prev, [id]: 'running' }));
       const latestLink = () => freshLinks.current.get(id) ?? linkById.get(id);
-      let result = await syncItem(product, latestLink(), depsFor(item, daraz, darazPausedReason));
-      // The AI (Groq) is busy or unreachable: wait and send this product to Daraz again instead of failing it.
-      // QuantumStore is already done.
-      for (let attempt = 1, why = aiUnavailable(result); why && !stopRef.current; attempt += 1, why = aiUnavailable(result)) {
-        addLog(`${why}: waiting 1 minute, then sending ${item.name} to Daraz again (try ${attempt + 1})`, 'error');
-        const terminal = new AbortController();
-        terminalCountdown(RATE_LIMIT_WAIT, `${why}: ${item.name} (try ${attempt + 1})`, terminal.signal);
-        for (let left = RATE_LIMIT_WAIT; left > 0 && !stopRef.current; left -= 1) {
-          setCountdown({ why, left });
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+      // What a wait fixes (our picture storage down, the AI busy or unreachable) never ends the run: the product waits a
+      // minute and is tried again, as often as it takes, until it goes through or Stop is pressed.
+      let result: SyncResult | null = null;
+      for (let attempt = 1; !stopRef.current; attempt += 1) {
+        let next: SyncResult;
+        try {
+          next = await syncItem(product, latestLink(), depsFor(item, daraz, darazPausedReason));
+        } catch (err) {
+          if (!(err instanceof StorageError)) throw err;
+          // Every product would fail the same way, so this one waits instead of being skipped.
+          setResults((prev) => ({ ...prev, [id]: { store: 'failed', daraz: 'skipped', storeMessage: err.message, darazMessage: 'Waiting for pictures' } }));
+          addLog(`${item.name} — ${err.message}`, 'error');
+          addLog(`Picture storage is not working: waiting 1 minute, then trying ${item.name} again (try ${attempt + 1}). Press Stop to end the run.`, 'error');
+          if (!(await waitAMinute('Picture storage not working', `${item.name} (try ${attempt + 1})`))) break;
+          setResults((prev) => ({ ...prev, [id]: 'running' }));
+          continue;
         }
-        setCountdown(null);
-        if (stopRef.current) terminal.abort();
-        if (stopRef.current) break;
-        const retry = await syncItem(product, latestLink(), depsFor(item, daraz, darazPausedReason));
-        result = { ...retry, store: result.store, storeMessage: result.storeMessage };
+        // A retry only concerns Daraz: QuantumStore's outcome is the one from the first time it was done.
+        result = result ? { ...next, store: result.store, storeMessage: result.storeMessage } : next;
+        const why = aiUnavailable(result);
+        if (!why) break;
+        addLog(`${why}: waiting 1 minute, then sending ${item.name} to Daraz again (try ${attempt + 1})`, 'error');
+        if (!(await waitAMinute(why, `${item.name} (try ${attempt + 1})`))) break;
       }
-      setResults((prev) => ({ ...prev, [id]: result }));
+      if (!result) {
+        // Stopped while waiting for picture storage: nothing happened to this product; the next run picks it up again.
+        setResults((prev) => ({ ...prev, [id]: { store: 'failed', daraz: 'skipped', storeMessage: 'Stopped while waiting for picture storage', darazMessage: 'Not tried' } }));
+        break;
+      }
+      const finished = result;
+      setResults((prev) => ({ ...prev, [id]: finished }));
       done += 1;
       if (result.daraz === 'listed') tally.listed += 1;
       else if (result.daraz === 'failed') tally.darazFailed += 1;
       else if (result.daraz === 'blocked') tally.darazBlocked += 1;
       else if (result.daraz === 'skipped') tally.darazSkipped += 1;
+      if (result.store === 'created') tally.created += 1;
       if (result.store === 'failed') tally.storeFailed += 1;
       if (result.store === 'skipped') tally.noPicture += 1;
-      addLog(`(${done}/${toSync.length}) done`);
+      addLog(`(${done}/${list.length}) done`);
 
       // Daraz keeps refusing the brand: stop asking it for the rest of this run, but keep filling QuantumStore.
       blocks = consecutiveBlocked(blocks, result);
@@ -473,26 +554,61 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
         addLog(`${darazPausedReason}. The remaining products only go to QuantumStore.`, 'error');
       }
 
-      // Do not repeat the same failure for every remaining product: stop and say what went wrong.
+      // The run does not stop itself on product failures (only the Stop button, or broken picture storage above, ends it
+      // early); a streak is flagged once in the log so a broken connection or setting is noticed.
       storeFailures = consecutiveFailures(storeFailures, result, 'store');
       darazFailures = consecutiveFailures(darazFailures, result, 'daraz');
-      if (storeFailures >= STOP_AFTER_FAILURES) haltedBecause = `QuantumStore refused ${STOP_AFTER_FAILURES} products in a row (${result.storeMessage})`;
-      else if (darazFailures >= STOP_AFTER_FAILURES) haltedBecause = `Daraz refused ${STOP_AFTER_FAILURES} products in a row (${result.darazMessage})`;
-      if (haltedBecause) break;
+      if (storeFailures === STOP_AFTER_FAILURES) addLog(`Warning: QuantumStore refused ${STOP_AFTER_FAILURES} products in a row (${result.storeMessage}). Carrying on; press Stop if this needs fixing first.`, 'error');
+      if (darazFailures === STOP_AFTER_FAILURES) addLog(`Warning: Daraz refused ${STOP_AFTER_FAILURES} products in a row (${result.darazMessage}). Carrying on; press Stop if this needs fixing first.`, 'error');
     }
     setRunning(false);
+    const stopped = stopRef.current;
     addLog(
-      `Finished${stopRef.current ? ' (stopped)' : ''}: ${done} of ${toSync.length} handled · on Daraz ${tally.listed} · Daraz failed ${tally.darazFailed} · Daraz skipped ${tally.darazSkipped} · Daraz brand not authorized ${tally.darazBlocked} · QuantumStore failed ${tally.storeFailed}${tally.noPicture ? ` · skipped (no working picture) ${tally.noPicture}` : ''}`,
+      `Finished${stopped ? ' (stopped)' : ''}: ${done} of ${list.length} handled · on Daraz ${tally.listed} · Daraz failed ${tally.darazFailed} · Daraz skipped ${tally.darazSkipped} · Daraz brand not authorized ${tally.darazBlocked} · QuantumStore failed ${tally.storeFailed}${tally.noPicture ? ` · skipped (no working picture) ${tally.noPicture}` : ''}`,
       tally.darazFailed || tally.storeFailed ? 'error' : 'info',
     );
-    if (haltedBecause) {
-      addLog(`Stopped early: ${haltedBecause}`, 'error');
-      setNotice(`Stopped after ${done} of ${toSync.length}: ${haltedBecause}. Nothing is lost: products already created are remembered, so press Sync again after fixing it and only the rest is done.`);
-    } else {
-      toast.success(`${done} of ${toSync.length} products synced${stopRef.current ? ' (stopped)' : ''}`);
-    }
+    if (!unattended) toast.success(`${done} of ${list.length} products synced${stopped ? ' (stopped)' : ''}`);
     await Promise.all([catalog.refetch(), queryClient.invalidateQueries({ queryKey: queryKeys.products.all })]);
+    return { handled: done, total: list.length, ...tally, stopped, stopReason, leftForLater: [...leftForLater] };
   }
+
+  // Auto finder: once the catalog, the Daraz status and the PKR rate are in, sync without a click and report back.
+  // Already-synced products are left out; in-stock ones (which can also go to Daraz) go first, up to `auto.limit`.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!auto || autoStarted.current) return;
+    if (catalog.isError) {
+      autoStarted.current = true;
+      auto.onDone({ ...EMPTY_SUMMARY, error: getErrorMessage(catalog.error, `Could not read ${site}`) });
+      return;
+    }
+    if (!items || !statusSettled || !rateReady) return;
+    autoStarted.current = true;
+    const needing = items.filter((i) => itemStatus(i, linkById.get(idOf(i)), { darazReady, hasCategory: true }) !== 'synced');
+    const ordered = [...needing.filter((i) => i.available), ...needing.filter((i) => !i.available)];
+    const list = auto.limit > 0 ? ordered.slice(0, auto.limit) : ordered;
+    setSelected(new Set(list.map(idOf)));
+    if (!list.length) {
+      addLog('Nothing new or changed here: every product is already synced.');
+      auto.onDone(EMPTY_SUMMARY);
+      return;
+    }
+    void run(list, { unattended: true }).then(
+      (summary) => auto.onDone(summary ?? EMPTY_SUMMARY),
+      (err) => auto.onDone({ ...EMPTY_SUMMARY, error: getErrorMessage(err, err instanceof Error ? err.message : 'The sync stopped unexpectedly') }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, items, statusSettled, rateReady, catalog.isError]);
+
+  // The Auto finder's Stop ends this shop's run after the current product, like the Stop button below.
+  useEffect(() => {
+    const signal = auto?.signal;
+    if (!signal) return;
+    const stop = () => (stopRef.current = true);
+    if (signal.aborted) stop();
+    signal.addEventListener('abort', stop);
+    return () => signal.removeEventListener('abort', stop);
+  }, [auto?.signal]);
 
   async function markRemovedSoldOut() {
     setMarkingRemoved(true);
@@ -619,14 +735,14 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
                     <input type="checkbox" checked={allShownSelected} onChange={toggleShown} aria-label="Select all shown products" />
                   </th>
                   <th>Product</th>
-                  <th>{name} price</th>
+                  <th>{priceLabel}</th>
                   <th>Daraz price</th>
                   <th>Status</th>
                   <th>Result</th>
                 </tr>
               </thead>
               <tbody>
-                {shown.map((item) => {
+                {shown.slice(0, MAX_ROWS).map((item) => {
                   const id = idOf(item);
                   const category = typeCategories[item.type];
                   const commission = category ? commissionFor(groupOf(category.path)) : null;
@@ -654,7 +770,7 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
                           </div>
                         </div>
                       </td>
-                      <td data-label={`${name} price`}>{rs(item.pkr)}</td>
+                      <td data-label={priceLabel}>{rs(item.pkr)}</td>
                       <td data-label="Daraz price">
                         {!item.available ? '—' : category ? rs(grossUpPrice(item.pkr, commission)) : 'pick a category'}
                       </td>
@@ -676,6 +792,12 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
               </tbody>
             </table>
           </div>
+          {shown.length > MAX_ROWS && (
+            <p className="muted" style={{ margin: '0.5rem 0' }}>
+              Showing the first {MAX_ROWS} of {shown.length.toLocaleString()} products. The tick box in the header still
+              selects all {shown.length.toLocaleString()} that match the filter; type in the filter to narrow the list.
+            </p>
+          )}
         </>
       )}
 
@@ -728,7 +850,7 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
         )}
         <div className="admin-quick">
           {!running ? (
-            <button type="button" className="btn btn-primary" disabled={!toSync.length || !rateReady || (typesWithoutCategory.length > 0 && !suggesting)} onClick={run}>
+            <button type="button" className="btn btn-primary" disabled={!toSync.length || !rateReady || (typesWithoutCategory.length > 0 && !suggesting)} onClick={() => void run()}>
               {toSync.length === (items || []).length ? `Sync everything (${toSync.length})` : `Sync selected (${toSync.length})`}
             </button>
           ) : (

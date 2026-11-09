@@ -53,7 +53,7 @@ describe('chatJson', () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('aborted');
     });
-    await expect(chatJson(messages, { env: { GROQ_API_KEY: 'k' }, fetchImpl })).rejects.toMatchObject({ status: 504 });
+    await expect(chatJson(messages, { env: { GROQ_API_KEY: 'k' }, fetchImpl, retryDelayMs: 0 })).rejects.toMatchObject({ status: 504 });
   });
 });
 
