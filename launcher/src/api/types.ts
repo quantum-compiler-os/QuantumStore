@@ -173,6 +173,8 @@ export interface StoreSettings {
   storeName?: string;
   supportEmail?: string;
   expressShippingFee?: number;
+  /** Rupees every order pays for delivery; express adds `expressShippingFee` on top. */
+  deliveryChargePkr?: number;
   loyaltyPointsPerDollar?: number;
   loyaltyRedemptionRate?: number;
   abandonedCartHours?: number;

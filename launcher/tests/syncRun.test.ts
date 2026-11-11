@@ -93,9 +93,9 @@ describe('runSync: imports and listings', () => {
     const report = await runSync(deps, { applyRemovals: false });
     expect(report.imported).toEqual(['Soundbar X']);
     const payload = (deps.store.createProduct as any).mock.calls[0][0];
-    // Daraz 8750 with 8.6% commission → seller keeps round(8750 × 0.914) = 7998
+    // Daraz 8750 with 8.6% commission → seller keeps round(8750 × 0.914) = 7998; QuantumStore adds Rs 2,000 on top
     expect(payload).toMatchObject({ name: 'Soundbar X', category: 'Audio', stock: 7, brand: 'Generic', image: 'https://dz/1.jpg', images: ['https://dz/2.jpg'] });
-    expect(payload.price).toBe(rupeesToStored(Math.round(8750 * 0.914), 278));
+    expect(payload.price).toBe(rupeesToStored(Math.round(8750 * 0.914) + 2000, 278));
     expect(deps.listings.save).toHaveBeenCalledWith(expect.objectContaining({ quantumProductId: 'new-1', darazItemId: 'd1', skuId: 'sku-d1' }));
   });
 

@@ -21,7 +21,7 @@ import {
   syncItem,
   type SyncDeps,
 } from '../src/features/audionic/syncOne';
-import { storedToRupees } from '../src/features/products/pricing';
+import { STORE_EXTRA_PKR, storedToRupees } from '../src/features/products/pricing';
 
 const RATE = 278;
 /** What the AI returns for the description: Daraz needs at least 30 words. */
@@ -84,12 +84,13 @@ const link = (over: Partial<AudionicLinkRow> = {}): AudionicLinkRow => ({
 });
 
 describe('prices', () => {
-  it('stores Audionic\'s price exactly, with no Rs 100 deduction', () => {
+  it('charges Audionic\'s price plus Rs 2,000 on QuantumStore, variants included, with no Rs 100 deduction', () => {
+    expect(STORE_EXTRA_PKR).toBe(2000);
     const payload = storePayload(item, RATE, 'Audio');
-    expect(storedToRupees(payload.price, RATE)).toBe(3499);
+    expect(storedToRupees(payload.price, RATE)).toBe(5499);
     expect(payload.variants.map((v) => [v.label, storedToRupees(v.price, RATE), v.stock])).toEqual([
-      ['Black', 3499, null],
-      ['White', 3499, 0],
+      ['Black', 5499, null],
+      ['White', 5499, 0],
     ]);
     expect(payload).toMatchObject({ brand: 'Audionic', category: 'Audio', stock: null, thumbnail: item.thumbnail });
   });
@@ -111,9 +112,10 @@ describe('syncItem: a new item', () => {
     expect(result).toMatchObject({ store: 'created', daraz: 'listed', darazMessage: 'Item 9001' });
     expect(d.ensureCategory).toHaveBeenCalledWith('Audio');
     const created = (d.createProduct as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(storedToRupees(created.price, RATE)).toBe(3499);
+    expect(storedToRupees(created.price, RATE)).toBe(3499 + 2000);
 
     const request = (d.publishDaraz as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // Daraz is priced from Audionic's own price, without QuantumStore's Rs 2,000:
     // 3499 ÷ (1 − 8.6%) = 3828.2 → 3829: after Daraz keeps its commission, at least Rs 3,499 is left.
     expect(request.price).toBe(grossUpPrice(3499, 8.6));
     expect(request.price).toBe(3829);
@@ -197,14 +199,14 @@ describe('syncItem: a new item', () => {
 });
 
 describe('syncItem: an item synced before', () => {
-  it('refreshes the store price when Audionic changed it, and leaves Daraz alone', async () => {
+  it('refreshes the store price when Audionic changed it (keeping the Rs 2,000 on top), and leaves Daraz alone', async () => {
     const d = deps();
     const repriced = { ...item, pkr: 3999 };
     const result = await syncItem(repriced, link(), d);
     expect(result).toMatchObject({ store: 'refreshed', daraz: 'unchanged' });
     const [id, payload] = (d.updateProduct as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(id).toBe('prod-1');
-    expect(storedToRupees(payload.price, RATE)).toBe(3999);
+    expect(storedToRupees(payload.price, RATE)).toBe(5999);
     expect(d.createProduct).not.toHaveBeenCalled();
     expect(d.publishDaraz).not.toHaveBeenCalled();
   });
@@ -312,7 +314,7 @@ describe('products the old backend import left behind', () => {
     ]);
   });
 
-  it('look like a price change, so the next sync reprices them to the exact Audionic price', () => {
+  it('look like a price change, so the next sync reprices them from the Audionic price', () => {
     const [adoptedLink] = adoptedLinks([old('p1', '101')], []);
     expect(itemStatus(item, adoptedLink, { darazReady: true, hasCategory: true })).toBe('changed');
   });
@@ -343,7 +345,7 @@ describe('products the old backend import left behind', () => {
     expect(result).toMatchObject({ store: 'refreshed', daraz: 'listed' });
     const [id, payload] = (d.updateProduct as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(id).toBe('p1');
-    expect(storedToRupees(payload.price, RATE)).toBe(3499); // exactly Audionic's price, nothing deducted
+    expect(storedToRupees(payload.price, RATE)).toBe(3499 + 2000); // Audionic's price, nothing deducted, plus Rs 2,000
     expect(d.createProduct).not.toHaveBeenCalled();
   });
 });

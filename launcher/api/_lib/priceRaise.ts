@@ -3,12 +3,15 @@ import type { DarazSku, PriceQuantityChange } from './darazCore.js';
 import { HttpError } from './http.js';
 
 /**
- * Adds a fixed number of rupees to every price on QuantumStore and/or Daraz (`npm run raise-prices`).
+ * Adds a fixed number of rupees to every price on QuantumStore and/or Daraz (Settings → "Add to every price").
  *
  * Adding is not safe to repeat, so each change is saved under a run id with its old and new prices just before it is
  * made. A re-run with the same id compares every live price with what was saved: already at the new price → done, left
  * alone; still at the old price → the earlier attempt failed, changed now; anything else → someone changed it in
  * between, only reported. Both shops are read before anything changes, and nothing changes at all without `apply`.
+ *
+ * A call that runs out of time (`outOfTime`; a Vercel function only gets 30 s) ends early with `unfinished`. Calling
+ * again with the same run id carries on where it stopped, for the reasons above.
  */
 
 export type RaiseTarget = 'store' | 'daraz';
@@ -56,6 +59,11 @@ export type RaiseDeps = {
   /** Today as yyyy-MM-dd, to tell a running Daraz sale from one that has ended. */
   today: () => string;
   log: (text: string) => void;
+  /**
+   * True once this call has used up its time. Checked before each change, and only after at least one change was
+   * attempted, so every call gets something done.
+   */
+  outOfTime?: () => boolean;
 };
 
 export type RaiseOptions = { amount: number; runId: string; apply: boolean; targets: RaiseTarget[] };
@@ -75,6 +83,8 @@ export type RaiseReport = {
   failures: RaiseProblem[];
   /** Why the run stopped before the end, or null when it went through everything. */
   stopped: string | null;
+  /** The call ran out of time with products left; call again with the same run id to carry on. */
+  unfinished: boolean;
 };
 
 /** After this many failures in a row the run stops: something is wrong for every product, not just one. */
@@ -128,7 +138,7 @@ export function decide<P>(current: P, saved: { from: P; to: P } | undefined, rai
 
 export async function raisePrices(deps: RaiseDeps, { amount, runId, apply, targets }: RaiseOptions): Promise<RaiseReport> {
   if (!Number.isFinite(amount) || amount === 0) throw new HttpError(400, 'The amount must be a number other than 0');
-  const report: RaiseReport = { runId, amount, apply, changed: [], done: [], skipped: [], failures: [], stopped: null };
+  const report: RaiseReport = { runId, amount, apply, changed: [], done: [], skipped: [], failures: [], stopped: null, unfinished: false };
   const doStore = targets.includes('store');
   const doDaraz = targets.includes('daraz');
 
@@ -149,6 +159,7 @@ export async function raisePrices(deps: RaiseDeps, { amount, runId, apply, targe
   };
 
   let failuresInARow = 0;
+  let attempted = 0;
 
   /** Saves the record (first time only), then makes the change. Returns false when the whole run must stop. */
   async function carryOut(
@@ -162,6 +173,11 @@ export async function raisePrices(deps: RaiseDeps, { amount, runId, apply, targe
       deps.log(`would change  ${text}`);
       return true;
     }
+    if (attempted > 0 && deps.outOfTime?.()) {
+      report.unfinished = true;
+      return false;
+    }
+    attempted += 1;
     if (!decision.alreadySaved) {
       try {
         await deps.records.save({ runId, target: line.target, key: line.key, name: line.name, from: decision.from, to: decision.to });
@@ -191,6 +207,7 @@ export async function raisePrices(deps: RaiseDeps, { amount, runId, apply, targe
 
   const finish = () => {
     if (report.stopped) deps.log(`Stopped: ${report.stopped}`);
+    else if (report.unfinished) deps.log('Out of time for this call; carrying on with the same run id picks up from here.');
     deps.log(
       `${apply ? 'Changed' : 'Would change'} ${report.changed.length}, already done ${report.done.length}, ` +
         `skipped ${report.skipped.length}, failed ${report.failures.length}.`,

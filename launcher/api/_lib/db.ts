@@ -41,7 +41,7 @@ export async function listingCollection() {
 }
 
 /**
- * One price change made by `npm run raise-prices`, saved just before the change. `_id` is `<runId>:<target>:<key>`, so
+ * One price change made by Settings → "Add to every price", saved just before the change. `_id` is `<runId>:<target>:<key>`, so
  * a re-run of the same run finds it and never adds the amount twice (see api/_lib/priceRaise.ts).
  */
 export type PriceRaiseRecord = {

@@ -48,7 +48,7 @@ Notes:
 
 **Audionic** (side menu) reads audionic.co's public catalog and lists the products on QuantumStore **and** Daraz. It runs only when you press the button, from the Launcher; the backend no longer has an Audionic sync or cron.
 
-- **Prices.** QuantumStore gets Audionic's price exactly (no deduction). Daraz gets it through the commission formula above.
+- **Prices.** QuantumStore gets Audionic's price plus Rs 2,000 (`STORE_EXTRA_PKR` in `shared/pricing.ts`; no deduction). Daraz gets Audionic's own price through the commission formula above, without the Rs 2,000.
 - **Categories.** The QuantumStore category is Audio or Accessories. For Daraz, one category is chosen per Audionic type (Earbuds, Speakers, Power Banks…): the AI suggests it, you can change it, and the choice is remembered in the browser.
 - **Daraz.** Available items go up with a quantity of 10 (Audionic does not say how many it has), one SKU per product at its lowest price, brand Audionic (falls back to "No Brand" if Daraz does not know it), and a deterministic SKU `AUD-<id>` so a repeat never lists it twice. Sold-out items are created on QuantumStore only.
 - **Re-sync.** What was synced is remembered in `launcher_audionic`. A later run creates new products and, when Audionic changed a price or availability, refreshes the QuantumStore product (price, stock, pictures). Daraz listings are not updated. Items Audionic dropped can be marked sold out with one button. A product that failed on Daraz keeps its QuantumStore half and is picked up again as "Not on Daraz".
@@ -59,7 +59,7 @@ Try it with two or three products first (untick the rest), check them on both si
 
 **CamSham** (side menu) reads camsham.pk's public WooCommerce catalog and works like the Audionic page (same table, log and re-sync rules; links are kept in `launcher_camsham`).
 
-- **Prices.** QuantumStore gets CamSham's price exactly; Daraz gets it through the commission formula. Products CamSham shows without a price (Rs 0) or without a picture are skipped.
+- **Prices.** QuantumStore gets CamSham's price plus Rs 2,000; Daraz gets CamSham's own price through the commission formula. Products CamSham shows without a price (Rs 0) or without a picture are skipped.
 - **Categories.** Each product gets a type from its CamSham categories (Lenses, Tripods, Microphones…). One Daraz category is chosen per type (AI suggestion, built-in fallback, or your pick), and the **QuantumStore category is the name of that Daraz category**, so both shops file the product the same way.
 - **Pictures.** CamSham serves many pictures as webp, which Daraz refuses, so before a product is created the Launcher downloads its pictures (through `/launcher-api/camsham/image`, limited to camsham.pk's upload folder) and uploads them through the backend, which stores JPEG copies. Both shops use those copies. This needs the backend on Google Drive storage, like Publish.
 - **Daraz.** Brand is CamSham's brand for the product (Canon, Sony, DJI…), SKU `CS-<id>`, quantity 10. Brands you are not authorized for fall back to "No Brand" or are refused, as on the Audionic page.
@@ -71,7 +71,7 @@ list of what it put on Daraz:
 
 | Found | What the sync does |
 |---|---|
-| On Daraz, not on QuantumStore | Creates it on QuantumStore (price = what you keep after the category commission, stock = Daraz quantity, images from Daraz) |
+| On Daraz, not on QuantumStore | Creates it on QuantumStore (price = what you keep after the category commission, plus Rs 2,000; stock = Daraz quantity, images from Daraz) |
 | On QuantumStore, not on Daraz | Lists it on Daraz (AI picks the category, fills the fields; price gets the commission added; untracked stock = 10). Sold-out products are skipped. Needs public https images |
 | On both, not tracked | Only saves the pairing (matched by name) |
 | Tracked, deleted on QuantumStore | Removes the Daraz item - **only with removals switched on** |

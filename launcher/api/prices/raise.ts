@@ -9,6 +9,12 @@ import { readLog } from '../_lib/syncState.js';
 
 let running = false;
 
+/**
+ * Changes stop being started after this long, so the call ends well inside the 30 s Vercel gives a function
+ * (vercel.json) and its report gets back. The page calls again with the same run id until nothing is left.
+ */
+const TIME_BUDGET_MS = 18_000;
+
 function readOptions(body: unknown): RaiseOptions {
   const { amount, runId, apply, targets } = (body || {}) as Record<string, unknown>;
   if (typeof amount !== 'number' || !Number.isFinite(amount) || amount === 0) {
@@ -24,7 +30,7 @@ function readOptions(body: unknown): RaiseOptions {
   return { amount, runId, apply: apply === true, targets: chosen as RaiseTarget[] };
 }
 
-function realRaiseDeps(authorization: string, log: (text: string) => void): RaiseDeps {
+function realRaiseDeps(authorization: string, log: (text: string) => void, started: number): RaiseDeps {
   const store = storeClient(authorization);
   return {
     store: { products: store.pricedProducts, rate: store.rate, update: store.updateProduct },
@@ -39,20 +45,24 @@ function realRaiseDeps(authorization: string, log: (text: string) => void): Rais
       },
       save: async (record) => {
         const _id = `${record.runId}:${record.target}:${record.key}`;
-        await (await priceRaiseCollection()).replaceOne({ _id }, { _id, ...record, at: new Date() }, { upsert: true });
+        // The upsert takes `_id` from the filter, so the replacement leaves it out.
+        await (await priceRaiseCollection()).replaceOne({ _id }, { ...record, at: new Date() }, { upsert: true });
       },
     },
     today: () => new Date().toLocaleDateString('en-CA'),
     log,
+    outOfTime: () => Date.now() - started > TIME_BUDGET_MS,
   };
 }
 
 /**
  * Adds `amount` rupees to every price on QuantumStore and/or Daraz; only previews unless `apply` is true. See
  * api/_lib/priceRaise.ts. The answer is newline-delimited JSON: `{type:"log"}` lines while it runs, then one
- * `{type:"report"}` (or `{type:"error"}`), so `npm run raise-prices` can show progress live.
+ * `{type:"report"}` (or `{type:"error"}`), so the Settings page can show progress live. A report with `unfinished`
+ * means the time ran out first: the page calls again with the same run id.
  */
 export default route('POST', async (req, res) => {
+  const started = Date.now();
   await requireOwner(req);
   const options = readOptions(req.body);
   if (running) throw new HttpError(409, 'A price change is already running — wait for it to finish');
@@ -74,7 +84,7 @@ export default route('POST', async (req, res) => {
       `${options.apply ? 'Adding' : 'Preview: adding'} Rs ${options.amount} to every price on ` +
         `${options.targets.map((t) => (t === 'store' ? 'QuantumStore' : 'Daraz')).join(' and ')} (run "${options.runId}")`,
     );
-    const report = await raisePrices(realRaiseDeps(String(req.headers.authorization), log), options);
+    const report = await raisePrices(realRaiseDeps(String(req.headers.authorization), log, started), options);
     send({ type: 'report', report });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

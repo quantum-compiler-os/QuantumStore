@@ -6,7 +6,7 @@ import { descriptionForDaraz, descriptionProblem, isBrandNotAuthorized, isKeywor
 const policyCode = (message: string) => /Policy\((R_\d+)\)/.exec(message)?.[1] ?? 'policy refusal';
 import { getErrorMessage } from '../../utils/errors';
 import { applyPrepared, darazPrice, darazProblem, initialDaraz } from '../daraz/darazForm';
-import { rupeesToStored } from '../products/pricing';
+import { rupeesToStored, storeRupees } from '../products/pricing';
 import type { KnownListing } from '../../../shared/knownListing';
 
 /** Audionic only says "available" or "sold out"; Daraz needs a number, so every available item is listed with this many. */
@@ -58,7 +58,7 @@ export function itemStatus(
 /**
  * Products the old backend sync imported (they carry `source.store === 'audionic'`) that this app has not linked yet.
  * They are adopted instead of duplicated: `sourcePkr: 0` makes the next sync see a price change, so the product is
- * repriced to Audionic's exact price (the old sync listed it Rs 100 lower) and then listed on Daraz like any other.
+ * repriced from Audionic's price (the old sync listed it Rs 100 lower) and then listed on Daraz like any other.
  */
 export function adoptedLinks(
   products: Array<{ _id: string; stock?: number | null; source?: { store?: string; productId?: string } | null }>,
@@ -90,16 +90,19 @@ export function removedLinks(items: AudionicItem[], links: AudionicLinkRow[]) {
 
 const stockOf = (available: boolean) => (available ? null : 0);
 
-/** Prices are rupees as the supplier lists them; the store keeps them divided by the PKR rate. */
+/**
+ * Prices are rupees as the supplier lists them. QuantumStore charges them plus STORE_EXTRA_PKR (shared/pricing.ts) and
+ * keeps that divided by the PKR rate.
+ */
 function variantsOf(item: SourceItem, rate: number) {
-  return item.variants.map((v) => ({ label: v.label, price: rupeesToStored(v.pkr, rate), stock: stockOf(v.available) }));
+  return item.variants.map((v) => ({ label: v.label, price: rupeesToStored(storeRupees(v.pkr), rate), stock: stockOf(v.available) }));
 }
 
 export function storePayload(item: SourceItem, rate: number, category: string, brand = BRAND) {
   return {
     name: item.name,
     description: item.description,
-    price: rupeesToStored(item.pkr, rate),
+    price: rupeesToStored(storeRupees(item.pkr), rate),
     category,
     stock: stockOf(item.available),
     image: item.image,
@@ -116,7 +119,7 @@ export function storePayload(item: SourceItem, rate: number, category: string, b
 /** What a re-sync refreshes on an existing product: price, availability and pictures. Texts the owner edited stay. */
 export function refreshPayload(item: SourceItem, rate: number) {
   return {
-    price: rupeesToStored(item.pkr, rate),
+    price: rupeesToStored(storeRupees(item.pkr), rate),
     stock: stockOf(item.available),
     variants: variantsOf(item, rate),
     image: item.image,
@@ -261,7 +264,7 @@ export async function syncItem(
   deps.onStage?.('store');
   try {
     if (link && (link.sourcePkr !== item.pkr || link.available !== item.available)) {
-      log(`QuantumStore: updating the existing product to Rs ${item.pkr.toLocaleString()}${item.available ? '' : ' (sold out)'}`);
+      log(`QuantumStore: updating the existing product to Rs ${storeRupees(item.pkr).toLocaleString()}${item.available ? '' : ' (sold out)'}`);
       const refresh = refreshPayload(item, deps.rate);
       // Copied pictures stay as they are; only the supplier's own addresses are refreshed.
       const payload = deps.hostImages ? { price: refresh.price, stock: refresh.stock, variants: refresh.variants } : refresh;
@@ -274,7 +277,7 @@ export async function syncItem(
       }
     }
     if (!productId) {
-      log(`QuantumStore: creating the product at Rs ${item.pkr.toLocaleString()} (category ${item.storeCategory})`);
+      log(`QuantumStore: creating the product at Rs ${storeRupees(item.pkr).toLocaleString()} (category ${item.storeCategory})`);
       const category = await deps.ensureCategory(item.storeCategory);
       const shown = { ...item, ...(await pictures()) };
       productId = (await deps.createProduct(storePayload(shown, deps.rate, category, brand)))._id;

@@ -1,6 +1,6 @@
 import { commissionFor, grossUpPrice, groupOf } from '../../shared/commission.js';
 import { descriptionForDaraz, descriptionProblem } from '../../shared/darazText.js';
-import { rupeesToStored, storedToRupees } from '../../shared/pricing.js';
+import { rupeesToStored, storedToRupees, storeRupees } from '../../shared/pricing.js';
 import { htmlToText, type DarazCategoryLeaf, type DarazItem } from './darazCore.js';
 import { HttpError } from './http.js';
 import {
@@ -137,7 +137,8 @@ export function storePayloadFromDaraz(item: DarazItem, rate: number, leaves: Dar
   return {
     name: item.name,
     description: description.length >= 10 ? description : `${item.name} — imported from Daraz`,
-    price: rupeesToStored(netRupees(item, leaves), rate),
+    // What the seller keeps on Daraz, plus what QuantumStore adds on top (shared/pricing.ts).
+    price: rupeesToStored(storeRupees(netRupees(item, leaves)), rate),
     category,
     stock: item.quantity,
     image: cover,

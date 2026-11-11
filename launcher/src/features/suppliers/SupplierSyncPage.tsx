@@ -33,6 +33,7 @@ import {
 import CategoryPicker from '../daraz/CategoryPicker';
 import { commissionFor, grossUpPrice, groupOf } from '../daraz/categoryGroups';
 import { ensureStoreCategory } from '../products/ensureCategory';
+import { STORE_EXTRA_PKR, storeRupees } from '../products/pricing';
 import { queryKeys } from '../../hooks/queryKeys';
 import { usePkrRate } from '../../hooks/usePkrRate';
 import { useProductCategoryNames } from '../../hooks/useProducts';
@@ -735,6 +736,7 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
                   </th>
                   <th>Product</th>
                   <th>{priceLabel}</th>
+                  <th title={`${priceLabel} + Rs ${STORE_EXTRA_PKR.toLocaleString()}`}>QuantumStore price</th>
                   <th>Daraz price</th>
                   <th>Status</th>
                   <th>Result</th>
@@ -770,6 +772,7 @@ export default function SupplierSyncPage<I extends SourceItem>({ config, adopt, 
                         </div>
                       </td>
                       <td data-label={priceLabel}>{rs(item.pkr)}</td>
+                      <td data-label="QuantumStore price">{rs(storeRupees(item.pkr))}</td>
                       <td data-label="Daraz price">
                         {!item.available ? '—' : category ? rs(grossUpPrice(item.pkr, commission)) : 'pick a category'}
                       </td>

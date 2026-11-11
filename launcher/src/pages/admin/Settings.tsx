@@ -4,6 +4,7 @@ import api from '../../api/client';
 import type { User } from '../../api/types';
 import { useAuth } from '../../context/AuthContext';
 import DarazConnectionCard from '../../features/daraz/DarazConnectionCard';
+import RaisePricesCard from '../../features/prices/RaisePricesCard';
 import { pkrRateFrom } from '../../features/products/pricing';
 import { useToast } from '../../context/ToastContext';
 import { getErrorMessage } from '../../utils/errors';
@@ -17,6 +18,7 @@ export default function Settings() {
     lowStockThreshold: 10,
     companyName: 'Quantum Logics Limited',
     expressShippingFee: 15,
+    deliveryChargePkr: 300,
     lowStockDigestEnabled: true,
     loyaltyPointsPerDollar: 1,
     loyaltyRedemptionRate: 0.01,
@@ -41,6 +43,7 @@ export default function Settings() {
           lowStockThreshold: data.lowStockThreshold ?? prev.lowStockThreshold,
           companyName: data.companyName ?? prev.companyName,
           expressShippingFee: data.expressShippingFee ?? prev.expressShippingFee,
+          deliveryChargePkr: data.deliveryChargePkr ?? prev.deliveryChargePkr,
           lowStockDigestEnabled: data.lowStockDigestEnabled ?? prev.lowStockDigestEnabled,
           loyaltyPointsPerDollar: data.loyaltyPointsPerDollar ?? prev.loyaltyPointsPerDollar,
           loyaltyRedemptionRate: data.loyaltyRedemptionRate ?? prev.loyaltyRedemptionRate,
@@ -74,6 +77,7 @@ export default function Settings() {
         lowStockThreshold: data.lowStockThreshold ?? prev.lowStockThreshold,
         companyName: data.companyName ?? prev.companyName,
         expressShippingFee: data.expressShippingFee ?? prev.expressShippingFee,
+        deliveryChargePkr: data.deliveryChargePkr ?? prev.deliveryChargePkr,
         lowStockDigestEnabled: data.lowStockDigestEnabled ?? prev.lowStockDigestEnabled,
         loyaltyPointsPerDollar: data.loyaltyPointsPerDollar ?? prev.loyaltyPointsPerDollar,
         loyaltyRedemptionRate: data.loyaltyRedemptionRate ?? prev.loyaltyRedemptionRate,
@@ -143,7 +147,18 @@ export default function Settings() {
             />
           </label>
           <label>
-            Express shipping fee ($)
+            Delivery charge, every order (Rs)
+            <input
+              className="input"
+              type="number"
+              min="0"
+              step="1"
+              value={form.deliveryChargePkr ?? 300}
+              onChange={(e) => setForm({ ...form, deliveryChargePkr: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            Express shipping fee, on top of delivery ($)
             <input
               className="input"
               type="number"
@@ -209,6 +224,8 @@ export default function Settings() {
           Save settings
         </button>
       </form>
+
+      <RaisePricesCard />
 
       <form className="admin-form" onSubmit={changePassword}>
         <h2>Change password</h2>
