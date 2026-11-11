@@ -83,6 +83,21 @@ page, after a confirmation) also removes. `npm run sync -- --check` changes noth
 one side answers with an empty list while products are tracked, and refuses removals when most tracked products seem to have
 vanished at once. Audionic and CamSham products are left to their own pages. Every step is logged on the page and in the terminal.
 
+## Prices and delivery
+
+- **Add to every price** (Settings). Adds a fixed number of rupees to every QuantumStore price (variants too; gift cards
+  and Rs 0 products are skipped) and, if ticked, every Daraz price. **Preview** changes nothing. Each change is recorded
+  under the run name (`launcher_price_raises`) just before it is made, so pressing the button again with the same name
+  finishes an interrupted run and never adds twice; a product someone repriced in between is only reported. On Vercel
+  each call stops starting changes after ~18 s and the page calls again until everything is done.
+- **QuantumStore's Rs 2,000.** Every product that comes in from a supplier, a fetched shop or Daraz is priced at that
+  price plus `STORE_EXTRA_PKR` (Rs 2,000, `shared/pricing.ts`), so re-syncs keep it. Daraz prices are not affected.
+  A price typed by hand (Publish, Products) is stored as typed. Editing a price on **Products** still sends that price,
+  with the commission, to Daraz.
+- **Delivery charge** (Settings, `deliveryChargePkr`, default Rs 300). Every storefront order pays it, standard and
+  express alike; express adds its own fee on top. It is kept in rupees and converted with the PKR rate when the order is
+  placed, so it stays Rs 300 if the rate changes.
+
 ## Layout
 
 | Path | Purpose |

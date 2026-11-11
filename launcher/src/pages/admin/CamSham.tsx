@@ -21,7 +21,7 @@ const CAMSHAM: SupplierConfig<CamshamItem> = {
   site: 'camsham.pk',
   intro: (
     <>
-      Brings CamSham&apos;s catalog into QuantumStore and Daraz. QuantumStore gets CamSham&apos;s exact price; Daraz gets the
+      Brings CamSham&apos;s catalog into QuantumStore and Daraz. QuantumStore gets CamSham&apos;s price + Rs 2,000; Daraz gets the
       price that still leaves CamSham&apos;s price after Daraz&apos;s commission. Both shops use the Daraz category chosen for
       each type. Pictures are copied to our own storage first. Items that are sold out stay on QuantumStore only.
     </>

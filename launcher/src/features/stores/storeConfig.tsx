@@ -27,8 +27,8 @@ export function storeConfig(address: string, host: string, onRead?: (info: Store
     site: host,
     intro: (
       <>
-        Brings {host}&apos;s products into QuantumStore and Daraz. QuantumStore gets the shop&apos;s price + Rs {MARKUP_PKR};
-        Daraz gets that price plus Daraz&apos;s commission for the category. Products are grouped by the shop&apos;s own
+        Brings {host}&apos;s products into QuantumStore and Daraz. Our price is the shop&apos;s price + Rs {MARKUP_PKR};
+        QuantumStore gets our price + Rs 2,000, and Daraz gets our price plus Daraz&apos;s commission for the category. Products are grouped by the shop&apos;s own
         product types, each with its own Daraz category. Pictures are copied to our own storage first; products with no
         working picture are skipped. Sold-out items stay on QuantumStore only.
       </>

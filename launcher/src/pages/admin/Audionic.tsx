@@ -13,7 +13,7 @@ const AUDIONIC: SupplierConfig<AudionicItem> = {
   site: 'audionic.co',
   intro: (
     <>
-      Brings Audionic&apos;s catalog into QuantumStore and Daraz at Audionic&apos;s own prices. Daraz gets the price that
+      Brings Audionic&apos;s catalog into QuantumStore (at Audionic&apos;s price + Rs 2,000) and Daraz. Daraz gets the price that
       still leaves Audionic&apos;s price after Daraz&apos;s commission. Items that are sold out stay on QuantumStore only.
     </>
   ),
@@ -45,7 +45,7 @@ export default function Audionic() {
       adoptedNotice={(count) => (
         <>
           {count} products already on QuantumStore came from the old Audionic import (listed Rs 100 below Audionic).
-          Syncing them sets Audionic&apos;s exact price and lists them on Daraz; no copies are made.
+          Syncing them sets Audionic&apos;s price + Rs 2,000 and lists them on Daraz; no copies are made.
         </>
       )}
     />

@@ -25,7 +25,7 @@ const PAKBOOKS: SupplierConfig<PakbooksItem> = {
   site: 'pakbooks.com',
   intro: (
     <>
-      Brings PakBooks&apos; books into QuantumStore and Daraz. QuantumStore gets PakBooks&apos; exact price; Daraz gets the
+      Brings PakBooks&apos; books into QuantumStore and Daraz. QuantumStore gets PakBooks&apos; price + Rs 2,000; Daraz gets the
       price that still leaves PakBooks&apos; price after Daraz&apos;s commission. Books are grouped by PakBooks&apos;
       collections (Fiction, Islam &amp; Religion…), each with its own Daraz category, and listed as &quot;No Brand&quot;
       with the author in the details. Every book not yet synced starts ticked; the run can be stopped at any time and
